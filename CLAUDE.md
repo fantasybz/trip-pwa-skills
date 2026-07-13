@@ -53,19 +53,19 @@ single source of truth** — never commit directly to the mirror; fold external
 PRs/issues back here, then re-publish. Sync after changes land on `main`:
 
 ```bash
-git remote add tps-mirror-remote https://github.com/fantasybz/trip-pwa-skills.git 2>/dev/null || true
-TREE=$(git rev-parse "origin/main:trip-pwa-skills")
-PARENT=$(git ls-remote tps-mirror-remote refs/heads/main | cut -f1)
-COMMIT=$(git commit-tree "$TREE" ${PARENT:+-p "$PARENT"} -m "sync: trip-pwa-skills @ monorepo $(git rev-parse --short origin/main)")
-git push tps-mirror-remote "$COMMIT:refs/heads/main"
+bash trip-pwa-skills/scripts/sync-mirror.sh
 ```
+
+The script (bash shebang — the inline recipe broke twice under zsh: the `:r`
+history modifier ate an un-braced refspec, and `${PARENT:+-p "$PARENT"}` isn't
+word-split) publishes a **snapshot commit**: no-ops when already in sync,
+parents the previous mirror head (fast-forward by construction), and names the
+monorepo sha in the message.
 
 **Snapshot syncs, NEVER `git subtree split/push`.** A subtree split replays
 this directory's FULL monorepo history into the mirror — including
 pre-sanitization blobs (the eval gold set carried family names before
-v0.10.2). The mirror's history must only ever contain current-tree snapshots;
-each sync is one commit that parents the previous mirror head (fast-forward by
-construction) and names the monorepo sha it mirrors.
+v0.10.2). The mirror's history must only ever contain current-tree snapshots.
 
 Because the mirror is public: no family names in any committed data (venues
 gold set uses role aliases like 媽媽/爸爸 — enforced expectation, not just
