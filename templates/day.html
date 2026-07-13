@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="{{LANG}}" data-city-initial="{{CITY_INITIAL}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#E76F51">
+  <title>{{TRIP_TITLE}}</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./css/tokens.css">
+  <link rel="stylesheet" href="./css/base.css">
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <!-- Per-anchor detail page. Renders a single anchor fully expanded:
+       name + jp reading, context, all contingency.alternatives with inline
+       prep_refs links. No hero image (variant A decision). Wired weekend 2
+       when draft-days/render produce anchor detail; for now it is a valid
+       shell so deep links don't 404. -->
+  <div class="app">
+    <header class="app-header">
+      <a href="./index.html" aria-label="返回行程">‹ 返回</a>
+    </header>
+    <main id="main">
+      <div class="empty-state">
+        <p class="empty-title">單日詳情</p>
+        <p class="empty-hint">draft-days 之後，每個 anchor 的備案與行前資料會在這裡展開。</p>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

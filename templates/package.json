@@ -1,0 +1,12 @@
+{
+  "name": "trip-pwa",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server 8799",
+    "test:a11y": "playwright test --config playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

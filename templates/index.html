@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="{{LANG}}" data-city-initial="{{CITY_INITIAL}}">
+<head>
+  <meta charset="utf-8">
+  <!-- ②-B D1: net-new CSP (the template shipped with none). AI mode is a RUNTIME
+       toggle; a <meta> CSP can't widen connect-src after load. Anthropic is always
+       allowlisted (it works browser-direct via the dangerous-direct-browser-access
+       header). OpenAI's api.openai.com is CORS-blocked browser-direct (verified
+       2026-06-14) and is NOT allowlisted; OpenAI works only through a CORS-enabled
+       proxy whose ORIGIN is baked in at scaffold time via `trip-scaffold init
+       --openai-proxy <url>` → {{OPENAI_CONNECT}} (narrow, single host; no blanket
+       https:). script stays 'self' (only ./js/*.js modules, no inline scripts).
+       ⚠️ Smoke-test before ship: open the PWA, confirm zero CSP console violations,
+       confirm the enrich fetch reaches api.anthropic.com (sk-ant- key) or the
+       configured proxy (sk- key). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.anthropic.com{{OPENAI_CONNECT}}; base-uri 'self'; form-action 'self'; object-src 'none'">
+  <!-- OpenAI-compatible proxy base URL (CORS-enabled), baked by --openai-proxy.
+       Empty → OpenAI keys fail-fast (see ai.js getOpenAiBase / resolveOpenAiChatUrl). -->
+  <meta name="trip-openai-base" content="{{OPENAI_BASE}}">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#E76F51">
+  <title>{{TRIP_TITLE}}</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png">
+  <!-- Critical paint: cream bg + tokens load first so first paint is never a
+       white screen (FOUT guard — empty-state promise holds on first paint). -->
+  <link rel="stylesheet" href="./css/tokens.css">
+  <link rel="stylesheet" href="./css/base.css">
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <div class="app">
+    <header id="app-header" class="app-header"><!-- filled by render.js (innerHTML) --></header>
+    <!-- ②-A edit-mode header bar. SEPARATE from #app-header because renderHeader
+         sets header.innerHTML and would wipe children. Hidden until the 口袋名單
+         view is active (edit-mode.js toggles [hidden] on the toggle/export). The
+         toggle is a real <button> with aria-pressed; export uses ownership copy. -->
+    <div id="edit-bar" class="edit-bar">
+      <!-- ②-A.1 FSA write-back: shown ONLY on a supported env (Chrome desktop +
+           local serve — fsa.js fsaSupported()). On iPhone/Safari/gh-pages both
+           stay hidden and the IndexedDB+export path is unchanged. The chip
+           reports connected/granted state; re-grant per session is normal. -->
+      <span id="fsa-chip" class="fsa-chip" hidden></span>
+      <button id="fsa-connect" type="button" class="fsa-connect-btn" hidden>📁 連接 data/ 資料夾</button>
+      <button id="edit-export" type="button" class="edit-export-btn" hidden disabled aria-disabled="true">匯出我的資料</button>
+      <button id="edit-toggle" type="button" class="edit-toggle" hidden aria-pressed="false">✏️ 編輯</button>
+    </div>
+    <!-- a11y: the persistence / private-mode banner is an assertive alert (a
+         data-loss warning must be announced). -->
+    <div id="edit-banner" class="edit-banner" role="alert" hidden></div>
+    <nav id="day-strip" class="day-strip" aria-label="行程日"><!-- day chips --></nav>
+    <main id="main"><!-- day card or empty state --></main>
+    <!-- a11y: success/undo toast is polite (doesn't interrupt the user). -->
+    <div id="edit-toast" class="edit-toast" aria-live="polite"></div>
+    <!-- ②-B (D9/DD2): AI enrich bottom-sheet over a scrim. role=dialog + aria-modal;
+         ai-enrich.js renders the loading / draft-with-editable-textarea / error /
+         key-entry views into #ai-sheet and manages focus-trap + return focus. -->
+    <div id="ai-sheet-backdrop" class="ai-sheet-backdrop" hidden></div>
+    <div id="ai-sheet" class="ai-sheet" role="dialog" aria-modal="true" aria-labelledby="ai-sheet-title" hidden></div>
+    <div id="prep-host"><!-- prep-refs collapsible --></div>
+    <!-- Nav is for VIEWS. Prep (今晚先看) is an inline collapse under each day's
+         card (#prep-host), not a view — so there is no 預習 nav button (a dead
+         disabled one confused 4 dogfood personas). The data-corpus="food" key is
+         kept for the 口袋名單 view (it renders ALL venue corpora, v0.5) so the v0.2
+         nav wiring + tests carry over — the button is relabelled, not re-keyed. -->
+    <nav id="bottom-nav" aria-label="主導覽">
+      <button data-corpus="schedule" aria-current="page">行程</button>
+      <button data-corpus="map" aria-disabled="true">地圖</button>
+      <button data-corpus="food" aria-disabled="true">口袋名單</button>
+    </nav>
+  </div>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

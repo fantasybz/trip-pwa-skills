@@ -1,0 +1,33 @@
+/* Design token contract — distilled from 2026-tokyo-family-travel styles.css.
+   Do NOT edit per-trip. The whole bundle's visual identity lives here so a
+   forked trip feels like the same family. (approved variant A) */
+:root {
+  --accent: #E76F51;        /* terracotta — day-chip active, focus ring, emphasis */
+  --accent-soft: #F4A261;   /* contingency chip bg */
+  --bg: #FFFCF7;            /* warm cream page */
+  --card: #FFFFFF;
+  --text: #1F2937;
+  --text-soft: #6B7280;     /* time labels, jp 假名, subtitle */
+  --border: #E5E7EB;
+  --alert: #DC2626;
+  --success: #059669;
+
+  --focus-ring-color: var(--accent);
+  --focus-ring-color-on-dark: #FFFFFF;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  --radius-card: 12px;
+  --safe-bottom: env(safe-area-inset-bottom, 0);
+  --safe-top: env(safe-area-inset-top, 0);
+
+  /* Filled primary button (②-A edit-mode 加入 / 儲存). The system had NO filled
+     primary button before — added here so ②-B reuses it. White-on-terracotta is
+     ~3.3:1 (fails AA at normal size), so the LABEL must stay ≥18px bold where this
+     token is used (large-text AA = 3:1, passes). The geometry tokens enforce the
+     44px tap target. */
+  --btn-primary-bg: var(--accent);
+  --btn-primary-fg: #FFFFFF;
+  --btn-primary-min-h: 44px;
+  --btn-primary-radius: 8px;
+}

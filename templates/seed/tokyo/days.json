@@ -1,0 +1,66 @@
+[
+  {
+    "id": "day_1",
+    "date": "2026-07-20",
+    "title": "Day 1 · 浅草・晴空塔",
+    "schedule": [
+      {
+        "time": "09:30",
+        "anchor": "浅草寺 雷門",
+        "jp_reading": "せんそうじ",
+        "context": "早去避人潮，仲見世通買零食",
+        "contingency": { "alternatives": [{ "name": "中野百老匯", "reason": "下雨改室內" }] }
+      },
+      {
+        "time": "14:00",
+        "anchor": "東京晴空塔",
+        "jp_reading": "スカイツリー",
+        "context": "午後上展望台看市景",
+        "contingency": { "alternatives": [] }
+      }
+    ],
+    "prep_refs": []
+  },
+  {
+    "id": "day_2",
+    "date": "2026-07-21",
+    "title": "Day 2 · 台場・teamLab",
+    "schedule": [
+      {
+        "time": "10:00",
+        "anchor": "teamLab Planets",
+        "jp_reading": "チームラボ",
+        "context": "預約制，提早 30 分到；會濕腳，帶毛巾",
+        "contingency": { "alternatives": [{ "name": "日本科學未來館", "reason": "額滿改去" }] }
+      },
+      {
+        "time": "15:00",
+        "anchor": "台場海濱公園",
+        "context": "傍晚海邊散步、看彩虹大橋",
+        "contingency": { "alternatives": [] }
+      }
+    ],
+    "prep_refs": []
+  },
+  {
+    "id": "day_3",
+    "date": "2026-07-22",
+    "title": "Day 3 · 上野",
+    "schedule": [
+      {
+        "time": "09:00",
+        "anchor": "上野動物園",
+        "jp_reading": "うえのどうぶつえん",
+        "context": "看熊貓，開園就去排",
+        "contingency": { "alternatives": [{ "name": "國立科學博物館", "reason": "週一休園改去" }] }
+      },
+      {
+        "time": "13:30",
+        "anchor": "阿美橫丁",
+        "context": "午餐＋逛街，海鮮丼很讚",
+        "contingency": { "alternatives": [] }
+      }
+    ],
+    "prep_refs": []
+  }
+]

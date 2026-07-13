@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+*.log
+bun.lockb
+# generated trip output when dog-fooding inside this repo
+/*-trip/
+.context/
+# launch-check / Playwright artifacts
+playwright-report/
+test-results/

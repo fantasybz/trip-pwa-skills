@@ -1,0 +1,11 @@
+# Transient run artifacts — regenerable via build-fixtures.ts / assemble.ts / run.ts.
+# The durable record is RESULTS.md; the gold set venues.jsonl IS committed.
+prompts.*.json
+report.*.json
+drafts.*.jsonl
+verdicts.*.json
+verify-sample.jsonl
+venues.guard-subset.jsonl
+vfy-out.*.jsonl
+precision-ab.results.md
+*.out

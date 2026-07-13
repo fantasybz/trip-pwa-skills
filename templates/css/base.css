@@ -1,0 +1,61 @@
+/* Base: reset + CJK body + focus-ring system. Ported from
+   2026-tokyo-family-travel styles.css (the a11y baseline is behavioral, this is
+   its CSS half). Scoped CJK wrap rules live in app.css per component, NOT on
+   body — applying overflow-wrap to body regresses descendants (Tokyo PR #295). */
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans TC", sans-serif;
+  font-size: 17px;
+  line-height: 1.55;            /* CJK 行高 — 比英文 1.4 寬，字密不擠 */
+  color: var(--text);
+  background: var(--bg);
+  overscroll-behavior-y: contain;
+}
+
+.hidden { display: none !important; }
+
+/* Universal :focus-visible. Outline (not box-shadow) so card/chip box-shadows
+   are not clobbered. */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Compound state guards: suppress ring during press / on disabled. */
+:focus-visible:active,
+:disabled:focus-visible,
+[aria-disabled="true"]:focus-visible {
+  outline-color: transparent;
+}
+
+/* Bottom-nav special case: outline outside a fixed button at the safe-area edge
+   clips into the home-indicator zone. Use top-edge inset shadow instead. */
+#bottom-nav button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 3px 0 0 var(--focus-ring-color);
+}
+
+/* Old Safari (<15.4) fallback. */
+@supports not selector(:focus-visible) {
+  :focus { outline: revert; }
+}
+
+/* Forced-colors (Windows High Contrast). */
+@media (forced-colors: active) {
+  :focus-visible { outline-color: Highlight; }
+  #bottom-nav button:focus-visible {
+    outline: 2px solid Highlight; outline-offset: 2px; box-shadow: none;
+  }
+}
+
+/* Reduced motion: strip transitions globally (focus appears instantly). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

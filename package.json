@@ -1,0 +1,14 @@
+{
+  "name": "trip-pwa-skills",
+  "version": "0.10.2",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Claude Code skill bundle that compiles a curated offline-first family-travel PWA",
+  "scripts": {
+    "test": "bun test skills/ templates/js-tests/ tests/evals/"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "title": "東京家族 3 日（範例）",
+  "destination": "tokyo",
+  "city_jp": "東京",
+  "lang": "zh-tw",
+  "dates": { "start": "2026-07-20", "end": "2026-07-22" },
+  "travelers": [{ "age_band": "school" }]
+}

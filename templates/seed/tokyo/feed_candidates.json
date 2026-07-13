@@ -1,0 +1,19 @@
+[
+  {
+    "id": "gyukatsu-motomura",
+    "name_zh": "牛かつ もと村 渋谷",
+    "candidate_for": "food",
+    "confidence": 0.7,
+    "tied_with": null,
+    "day_hint": null,
+    "reasons": ["matched food: 牛かつ"],
+    "source_url": "https://www.instagram.com/p/demo-gyukatsu/",
+    "source_platform": "instagram",
+    "extraction_method": "caption",
+    "address": "東京都渋谷区道玄坂",
+    "hours": "11:00-22:00",
+    "price": "¥¥",
+    "maps_query": "牛かつ もと村 渋谷",
+    "last_seen": "2026-06-06"
+  }
+]

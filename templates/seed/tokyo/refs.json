@@ -1,0 +1,22 @@
+{
+  "schedule_refs": {
+    "day_1": [
+      {
+        "type": "video",
+        "title": "浅草寺＋晴空塔 半日攻略",
+        "url": "https://www.youtube.com/watch?v=demo-asakusa",
+        "source": "youtube",
+        "lang": "zh-tw"
+      }
+    ],
+    "day_2": [
+      {
+        "type": "video",
+        "title": "teamLab Planets 完整導覽（帶小孩注意事項）",
+        "url": "https://www.youtube.com/watch?v=demo-teamlab",
+        "source": "youtube",
+        "lang": "zh-tw"
+      }
+    ]
+  }
+}

@@ -1,0 +1,810 @@
+/* App layout — approved variant A (schedule-rail dense).
+   day-strip -> active-day-card -> time-block rows -> contingency chips ->
+   prep-refs collapsible -> bottom nav. */
+
+/* ---- Scoped CJK wrap (NOT on body — Tokyo PR #295) ---- */
+.day-card, .time-block-row, .prep-collapse, .empty-state {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* ---- App shell ---- */
+.app {
+  max-width: 600px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-top);
+}
+
+/* ---- Header ---- */
+.app-header {
+  padding: 12px 16px 8px;
+  border-bottom: 2px solid var(--accent);
+}
+.app-header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.02em;        /* CJK legibility */
+}
+.app-header .dates {
+  font-size: 13px;
+  color: var(--text-soft);
+  margin-top: 2px;
+}
+
+/* ---- Day strip (horizontal scroll chips) ---- */
+.day-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 16px;
+  scroll-snap-type: x proximity;  /* proximity not mandatory — keyboard focus
+                                     scrollIntoView doesn't fight snap */
+  -webkit-overflow-scrolling: touch;
+}
+.day-chip {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.day-chip[aria-selected="true"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.day-chip .chip-date {
+  display: block;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* ---- Active day card ---- */
+.day-card {
+  background: var(--card);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  margin: 4px 16px 16px;
+  padding: 16px 18px;
+}
+.day-card h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ---- Time-block row ---- */
+.time-block-row {
+  display: flex;
+  flex-wrap: wrap;               /* 375px: chip wraps to next line, no overflow */
+  align-items: baseline;
+  gap: 6px;
+  min-height: 44px;              /* tap target */
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.time-block-row:first-of-type { border-top: none; }
+.time-block-row .time {
+  flex: 0 0 auto;
+  font-size: 15px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  min-width: 48px;
+}
+.time-block-row .anchor-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 17px;
+}
+.time-block-row .anchor-name .jp-reading,
+.time-block-row .anchor-name .alt-name {
+  color: var(--text-soft);
+  font-size: 14px;
+  margin-left: 4px;
+}
+
+/* ---- Contingency chip (always visible — the moat) ---- */
+.contingency-chip {
+  flex: 0 0 auto;
+  background: var(--accent-soft);
+  color: #1F2937;                /* dark on soft-orange = WCAG AA pass (white fails) */
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+/* A backup with a name is a tap-to-navigate link (the whole chip is the target,
+   so it meets the ≥44px tap rule); shows 「備案 <name>（<reason>） 📍」. */
+.contingency-chip.contingency-link {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 10px;
+  /* Own line + shrinkable so a long backup name wraps instead of overflowing the
+     375px row (flex:0 0 auto from .contingency-chip can't shrink — codex P2). */
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Prep-refs collapsible ---- */
+.prep-collapse {
+  margin: 0 16px 12px;
+  background: #F5F1EA;
+  border-radius: var(--radius-card);
+}
+.prep-collapse > summary {
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.prep-collapse > summary::-webkit-details-marker { display: none; }
+.prep-collapse > summary::after { content: " ▸"; color: var(--text-soft); }
+.prep-collapse[open] > summary::after { content: " ▾"; }
+.prep-collapse .prep-body { padding: 0 16px 14px; }
+
+/* ---- Empty states ---- */
+.empty-state {
+  text-align: center;
+  padding: 40px 24px;
+  color: var(--text);
+}
+.empty-state .empty-icon {
+  width: 72px; height: 72px;
+  margin: 0 auto 16px;
+  display: block;
+}
+.empty-state .empty-title { font-size: 22px; font-weight: 700; margin: 0 0 8px; }
+.empty-state .empty-cmd {
+  font-size: 17px; color: var(--text-soft); margin: 0 0 4px;
+}
+.empty-state .empty-cmd code {
+  background: #F0EBE2; padding: 1px 6px; border-radius: 4px; font-size: 15px;
+}
+.empty-state .empty-hint { font-size: 13px; color: var(--text-soft); margin-top: 12px; }
+
+/* ---- Bottom nav ---- */
+#bottom-nav {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  padding-bottom: var(--safe-bottom);
+}
+#bottom-nav button {
+  flex: 1;
+  min-height: 48px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 0;
+}
+#bottom-nav button[aria-current="page"] { color: var(--accent); font-weight: 600; }
+#bottom-nav button[aria-disabled="true"] { color: var(--text-soft); cursor: default; }
+
+/* ---- View toggling: schedule-only regions hide in food view ----
+   .day-strip sets display:flex, which out-specifies the bare [hidden] rule, so
+   the hide must be explicit (a .day-strip.hidden = true would silently no-op). */
+.day-strip[hidden], #prep-host[hidden] { display: none; }
+
+/* ---- Empty-contingency affordance (the slot stays visible before it's filled,
+   per the always-visible moat — shown only on real anchors, not draft stubs) */
+.contingency-empty {
+  flex: 0 0 auto;
+  border: 1px dashed var(--accent-soft);
+  color: var(--text-soft);
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+/* ---- Unfilled draft-anchor placeholder (warmer than a bare time row) ---- */
+.time-block-row .anchor-todo {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text-soft);
+  font-style: italic;
+}
+
+/* ---- Food + Map views (overflow-wrap inherits -> scope CJK wrap to subtree).
+   The map view (navigate-list) reuses the food card + .food-list/.food-item/
+   .food-maps/.food-cat styling — same "name + 📍 link" rows. ---- */
+.food-view, .map-view {
+  background: var(--card);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  margin: 4px 16px 16px;
+  padding: 16px 18px;
+  overflow-wrap: anywhere;
+}
+.food-view h2, .map-view h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.food-cat {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.food-list { list-style: none; margin: 0; padding: 0; }
+.food-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 44px;              /* tap target */
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.food-item:first-child { border-top: none; }
+.food-name { flex: 0 1 auto; font-size: 17px; }
+.food-why { flex: 1 1 100%; font-size: 13px; color: var(--text-soft); }
+.food-day-chip {
+  flex: 0 0 auto;
+  background: var(--accent-soft);
+  color: #1F2937;                /* dark on soft-orange = WCAG AA */
+  font-size: 12px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.food-pending {
+  flex: 0 0 auto;
+  border: 1px dashed var(--text-soft);
+  color: var(--text-soft);
+  font-size: 12px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.food-link {
+  flex: 0 0 auto;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 16px;
+  min-width: 44px; min-height: 44px;   /* tap target */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* v0.2.3 — on-the-ground detail: address/hours/price line + maps link */
+.food-meta {
+  flex: 1 1 100%;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.food-maps {
+  flex: 0 0 auto;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  min-height: 44px;                    /* tap target */
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* ---- v0.5 口袋名單 (venue view) — corpus sections + 待分類 backlog ----
+   3-level title hierarchy: .food-view h2 (L1 view title) > .venue-corpus (L2
+   corpus section, glyph+count) > .food-cat (L3 category sub-header, food only).
+   .venue-corpus MUST read stronger than .food-cat so corpus != category. */
+.venue-corpus {
+  margin: 16px 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.venue-corpus:first-of-type { margin-top: 4px; }
+/* L3 sub-header nests under L2 → tighter top margin when it follows a corpus head. */
+.venue-corpus + .food-cat { margin-top: 6px; }
+/* 待分類 backlog: visible but subordinate to the curated sections above (DD2=A). */
+.venue-corpus.venue-pending { color: var(--text-soft); font-weight: 600; }
+.venue-pending-hint { margin: 0 0 6px; }
+/* Present-but-unparseable corpus file → warn, never silent-vanish (codex #9). */
+.venue-error {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--alert);
+}
+
+/* ============================================================================
+   ②-A EDIT MODE (Lane C). All in the LOCKED palette — no new colors beyond the
+   ONE new primitive (the filled primary button token in tokens.css). Reading
+   mode is byte-identical when edit mode is off (these only paint when the
+   toggle is ON or the bar's buttons are un-hidden).
+   ============================================================================ */
+
+/* ---- filled primary button (the ONE new primitive) ---- */
+.edit-primary-btn {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  min-height: var(--btn-primary-min-h);
+  border-radius: var(--btn-primary-radius);
+  border: none;
+  font-size: 18px;          /* ≥18px bold → white-on-terracotta passes large-text AA 3:1 */
+  font-weight: 700;
+  padding: 8px 20px;
+  cursor: pointer;
+  width: 100%;
+}
+.edit-primary-btn:disabled,
+.edit-primary-btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+
+/* ---- header edit bar (toggle + export) ---- */
+.edit-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  min-height: 0;
+}
+/* When both buttons are hidden the bar collapses (no empty strip in reading mode). */
+.edit-bar:not(:has(.edit-toggle:not([hidden]))) { padding: 0; }
+.edit-toggle {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 14px;
+  padding: 6px 14px;
+  min-height: 36px;
+  cursor: pointer;
+  margin: 6px 0;
+}
+/* ON state reuses the .day-chip[aria-selected] accent fill (token mapping). */
+.edit-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.edit-export-btn {
+  background: var(--card);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 14px;
+  min-height: 36px;
+  cursor: pointer;
+  margin: 6px 0;
+}
+.edit-export-btn:disabled,
+.edit-export-btn[aria-disabled="true"] {
+  color: var(--text-soft);
+  border-color: var(--border);
+  cursor: default;
+}
+
+/* ---- ②-A.1 FSA write-back: connect button + status chip ---- */
+.fsa-connect-btn {
+  background: var(--card);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 14px;
+  min-height: 36px;
+  cursor: pointer;
+  margin: 6px 0;
+}
+.fsa-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--success);
+  background: #EAF5EC;             /* tint of --success, in-palette */
+  border: 1px solid var(--success);
+  border-radius: 999px;
+  padding: 4px 10px;
+  min-height: 28px;
+  margin: 6px 0;
+}
+/* display:inline-flex above outranks the UA [hidden] rule → re-assert it so the
+   chip actually hides on unsupported envs (class+attr beats the bare class). */
+.fsa-chip[hidden] { display: none; }
+
+/* ---- persistence / private-mode banner (follows .venue-error, uses --alert) ---- */
+.edit-banner {
+  margin: 8px 16px 0;
+  padding: 10px 14px;
+  background: #FDECEA;             /* tint of --alert, in-palette */
+  border: 1px solid var(--alert);
+  border-radius: 8px;
+  color: var(--alert);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* ---- toast (success / undo) — polite live region ---- */
+.edit-toast {
+  position: sticky;
+  bottom: 56px;                    /* clears the bottom nav */
+  z-index: 5;
+  margin: 0 16px;
+  max-width: calc(600px - 32px);
+  align-self: center;
+  background: var(--text);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0;                      /* collapsed when empty */
+  font-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.edit-toast.edit-toast-show {
+  padding: 10px 14px;
+  opacity: 1;
+  pointer-events: auto;
+}
+.edit-undo-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.6);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 12px;
+  min-height: 32px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+/* ---- add composer (white card, reuses .food-view shadow vocabulary) ---- */
+.edit-composer-host {
+  margin: 0 0 12px;
+}
+.edit-reassure {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--success);
+}
+.edit-composer {
+  background: #FAF7F2;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edit-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.edit-input {
+  font-size: 16px;                 /* ≥16px avoids iOS zoom-on-focus */
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  min-height: 44px;
+  width: 100%;
+}
+.edit-hint { margin: 0; font-size: 12px; color: var(--text-soft); }
+.edit-url-error { margin: 0; font-size: 13px; color: var(--alert); }
+
+/* ---- inline corpus picker (radiogroup; chips reuse .contingency-chip geometry) ---- */
+.edit-picker { display: flex; flex-direction: column; gap: 8px; }
+.edit-picker-label { margin: 0; font-size: 13px; color: var(--text-soft); }
+.edit-picker-chips {
+  display: flex;
+  flex-wrap: wrap;                 /* 5 chips wrap to 2 rows at 390px — never scroll-hidden */
+  gap: 8px;
+}
+.edit-chip {
+  /* 44px link-variant geometry (read-mode .contingency-chip is <44px) */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 14px;
+  background: var(--accent-soft);
+  color: #1F2937;                  /* dark on soft-orange = AA pass */
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.edit-chip.edit-chip-on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.edit-picker-nudge { margin: 0; font-size: 13px; color: var(--alert); }
+.edit-picker-inline { margin-top: 8px; flex: 1 1 100%; }
+
+/* ---- per-row edit/remove controls (inherit .food-link 44x44 geometry) ---- */
+.edit-row-controls {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;               /* push to the row's right edge */
+}
+.edit-edit-btn,
+.edit-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+.edit-remove-btn { color: var(--alert); }
+.edit-edit-btn { color: var(--accent); }
+.edit-promote-btn {
+  background: var(--card);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 12px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+/* edit-mode makes 待分類 rise + read as the active work queue (not subordinate). */
+.food-view.edit-on .venue-corpus.venue-pending.venue-pending-top {
+  color: var(--accent);
+  font-weight: 700;
+}
+.food-view.edit-on .venue-pending-hint { display: none; }   /* the 分類到… buttons say it now */
+
+/* =========================================================================
+   ②-B AI enrich — ⋯ overflow menu (DD1) + bottom-sheet (D9/DD2)
+   All in variant-A tokens. Contrast rule: the AI-draft BODY is --text ink
+   (terracotta-on-cream ~3.4:1 fails body AA); only LABELS may be terracotta.
+   ========================================================================= */
+
+/* ⋯ overflow trigger — third row control, 44px tap target */
+.edit-more-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-soft);
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.edit-more-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+
+/* the tiny role=menu that drops under the row, holding ✨ 補家庭視角 */
+.edit-more-menu {
+  flex: 1 1 100%;
+  margin-top: 8px;
+  display: flex;
+}
+.edit-ai-enrich {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0 14px;
+  min-height: 44px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.edit-ai-enrich:hover { border-color: var(--accent); }
+
+/* scrim + sheet */
+.ai-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 41, 55, 0.45);
+  z-index: 40;
+}
+.ai-sheet-backdrop[hidden] { display: none; }
+.ai-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  background: var(--card);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -8px 28px rgba(31, 41, 55, 0.18);
+  padding: 10px 18px calc(18px + var(--safe-bottom));
+  max-width: 640px;
+  margin: 0 auto;
+  max-height: 88vh;
+  overflow-y: auto;
+  animation: ai-sheet-up 0.22s ease-out;
+}
+.ai-sheet[hidden] { display: none; }
+@keyframes ai-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+body.ai-sheet-open { overflow: hidden; }   /* scroll-lock behind the sheet */
+
+.ai-sheet-grabber {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 2px auto 10px;
+}
+.ai-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ai-sheet-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--accent);   /* label-tier terracotta is OK; body text below is ink */
+}
+.ai-sheet-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 18px;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.ai-sheet-note { margin: 10px 0; font-size: 13px; line-height: 1.5; color: var(--text-soft); }
+
+/* Thin-input badge (grounding guard): sparse-data venue → AI leaned on general
+   knowledge; nudge a pre-trip re-check without blocking accept. */
+.ai-thin-badge {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--alert) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--alert) 35%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* v3 verify-pass warning: the background 2nd model call flagged specifics it
+   couldn't ground. Advisory (never blocks accept); slightly stronger than the
+   thin badge. Pre-rendered empty + hidden; populated when the verify resolves. */
+.ai-verify-warn {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--alert) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--alert) 45%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ai-verify-warn[hidden] { display: none; }
+
+/* "現在" comparison line (only when an existing why_picked is present) */
+.ai-now { margin: 12px 0 6px; font-size: 14px; color: var(--text-soft); line-height: 1.5; }
+.ai-now-label {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+/* the editable draft (DD2) — body is INK, label is the only terracotta */
+.ai-draft-label { display: block; margin: 12px 0 6px; font-size: 13px; font-weight: 700; color: var(--accent); }
+.ai-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);            /* ink — passes body AA on cream */
+  font: inherit;
+  font-size: 16px;               /* ≥16px avoids iOS zoom-on-focus */
+  line-height: 1.55;
+  resize: vertical;
+}
+.ai-textarea:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* key-entry view */
+.ai-key-label { display: block; margin: 10px 0 6px; font-size: 13px; font-weight: 700; color: var(--text); }
+.ai-key-field {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+}
+
+/* actions row — reuse .edit-primary-btn (filled terracotta, ≥18px bold label) */
+.ai-sheet-actions { display: flex; gap: 10px; margin-top: 16px; }
+.ai-sheet-actions .edit-primary-btn { flex: 1 1 auto; }
+.ai-ghost-btn {
+  appearance: none;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--btn-primary-radius);
+  min-height: var(--btn-primary-min-h);
+  padding: 0 18px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* loading + error states */
+.ai-sheet-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 0;
+  color: var(--text);
+  font-size: 15px;
+}
+.ai-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ai-spin 0.8s linear infinite;
+}
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+.ai-sheet-error { margin: 14px 0; color: var(--alert); font-size: 15px; line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-sheet { animation: none; }
+  .ai-spinner { animation: none; }
+}
