@@ -8,4 +8,5 @@ verify-sample.jsonl
 venues.guard-subset.jsonl
 vfy-out.*.jsonl
 precision-ab.results.md
+precision-ab.*.results.md
 *.out

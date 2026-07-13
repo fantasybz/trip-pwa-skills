@@ -85,6 +85,36 @@ reports carry an explicit not-decision-grade caveat on the recommendation.
 | recall on real majors | 92.2% | _?_ | _?_ |
 | let-through major (GATE ≤10%) | 4.7% | _?_ | _?_ |
 
+## OpenAI-path variant (informational — never flips the shipped default)
+
+The same 3-arm experiment can run over the **OpenAI BYOK path** (the config an
+OpenAI-key user actually lives with: `gpt-4o-mini` generates and self-verifies):
+
+```bash
+OPENAI_API_KEY=sk-...  bun run.ts --arm baseline --generate openai --judge codex
+OPENAI_API_KEY=sk-...  bun precision-ab.ts --provider openai
+```
+
+Mechanics: Bun has no CORS, so the harness calls `api.openai.com` directly
+through a fetch-boundary shim (`eval-lib.openAiDirectOpts` — a reserved-TLD
+sentinel base that passes the SHIPPED validator, rewritten at the fetch call).
+The browser contract is untouched: in the generated app, OpenAI stays
+proxy-only and `resolveOpenAiChatUrl` still fail-fasts on `api.openai.com`.
+All OpenAI-path artifacts carry a `.oai` marker in the default filenames
+(`drafts.baseline.oai.jsonl`, `report.baseline.oai.json`,
+`vfy-out.<mode>.oai.jsonl`, `precision-ab.oai.results.md`), and — because
+explicit `--drafts/--truth/--out` overrides could bypass filenames — every
+artifact also embeds `provider` metadata (draft rows, the report, vfy rows)
+that `run.ts`/`verify-run.ts`/`precision-ab.ts` hard-check against the run's
+`--provider`. Mixing paths fails with exit 2, never a mislabeled report.
+
+**Interpretation limit:** the ground-truth judge (Codex) shares a model family
+with the OpenAI generator/verifier, so judge independence is weaker than the
+canonical sonnet-generates / Codex-judges setup. Use the OpenAI-path numbers to
+characterize the OpenAI BYOK experience (how noisy is ⚠️ there, does the
+verifier behave sanely); the decision rule below applies **only** to the
+Anthropic-path A/B.
+
 ## Decision rule
 
 A candidate = the strict arm, or the confidence arm at its recommended τ*

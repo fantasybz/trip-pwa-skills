@@ -41,6 +41,34 @@ export function readJsonl<T = any>(path: string): T[] {
   return readFileSync(path, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as T);
 }
 
+// ---- OpenAI direct-call shim (harness only) ------------------------------------
+// The SHIPPED validator (ai.js resolveOpenAiChatUrl) hard-rejects api.openai.com:
+// in a BROWSER that host is CORS-blocked, so the template fail-fasts with
+// 'openai-needs-proxy' instead of an opaque network error. The eval harness runs
+// in Bun — no CORS — and measuring the OpenAI BYOK path directly is the point.
+// Rather than weakening the shipped validator, route through a reserved-TLD
+// sentinel base (RFC 2606 `.invalid`, passes validation) and rewrite to
+// api.openai.com at the fetch boundary. ai.js stays byte-identical.
+export const OPENAI_HARNESS_BASE = 'https://openai-direct.harness.invalid';
+export const OPENAI_DIRECT_ORIGIN = 'https://api.openai.com';
+export function openAiDirectOpts(inner?: (url: string, init?: unknown) => Promise<unknown>) {
+  const f = inner ?? ((url: string, init?: unknown) => (globalThis.fetch as any)(url, init));
+  return {
+    openaiBase: OPENAI_HARNESS_BASE,
+    // Prefix-anchored rewrite (never a global replace): only a URL whose ORIGIN
+    // is the sentinel gets rewritten; a sentinel string embedded anywhere else
+    // (query param, path of another host) passes through untouched, and the
+    // request body/init are never inspected or mutated.
+    fetchImpl: (url: string, init?: unknown) => {
+      const u = String(url);
+      const rewritten = u === OPENAI_HARNESS_BASE || u.startsWith(OPENAI_HARNESS_BASE + '/')
+        ? OPENAI_DIRECT_ORIGIN + u.slice(OPENAI_HARNESS_BASE.length)
+        : u;
+      return f(rewritten, init);
+    },
+  };
+}
+
 // ---- verify-pass scoring (shared by verify-pass.ts + precision-ab.ts) ---------
 // The formulas are verbatim from the shipped v3 verify-pass measurement (see
 // RESULTS.md): joined = rows with ground truth; flag-rate over joined; the GATE

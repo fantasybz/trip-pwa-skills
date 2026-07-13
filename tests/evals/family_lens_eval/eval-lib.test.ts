@@ -9,8 +9,92 @@ import { join } from 'node:path';
 import {
   parseArg, pct, fmtDelta, readJsonl, buildJudgeItem,
   isMajor, isHall, verdictAtTau, scoreVerify, sweepVerify, pickOperatingPoint,
+  openAiDirectOpts, OPENAI_HARNESS_BASE, OPENAI_DIRECT_ORIGIN,
   type VerifyRow, type TruthRowLike, type VerifyScore,
 } from './eval-lib.ts';
+
+test('openAiDirectOpts: sentinel base validates in ai.js, fetch boundary rewrites to api.openai.com', async () => {
+  const calls: Array<{ url: string; init: unknown }> = [];
+  const opts = openAiDirectOpts(async (url, init) => { calls.push({ url, init }); return 'resp'; });
+  // the sentinel passes the SHIPPED validator without touching ai.js
+  const { resolveOpenAiChatUrl } = await import('../../../templates/js/ai.js');
+  expect(resolveOpenAiChatUrl(opts.openaiBase)).toEqual({ ok: true, url: `${OPENAI_HARNESS_BASE}/v1/chat/completions` });
+  expect(resolveOpenAiChatUrl(OPENAI_DIRECT_ORIGIN)).toEqual({ ok: false, error: 'openai-needs-proxy' });   // the browser contract this shim exists to preserve
+  // the resolved URL is rewritten to the real host at the fetch boundary, init untouched
+  const r = await opts.fetchImpl(`${OPENAI_HARNESS_BASE}/v1/chat/completions`, { method: 'POST', body: 'b' });
+  expect(r).toBe('resp');
+  expect(calls).toEqual([{ url: `${OPENAI_DIRECT_ORIGIN}/v1/chat/completions`, init: { method: 'POST', body: 'b' } }]);
+  // non-sentinel URLs pass through unchanged (defensive)
+  await opts.fetchImpl('https://example.com/x', undefined);
+  expect(calls[1].url).toBe('https://example.com/x');
+  // prefix-anchored: a sentinel string embedded in ANOTHER host's URL is data,
+  // not a rewrite target
+  await opts.fetchImpl(`https://example.com/?next=${OPENAI_HARNESS_BASE}/v1`, undefined);
+  expect(calls[2].url).toBe(`https://example.com/?next=${OPENAI_HARNESS_BASE}/v1`);
+});
+
+// Mock-wire tests: these pin ROUTING + REQUEST SHAPE (provider, endpoint, model,
+// tool_choice) using only the opts run.ts/verify-run.ts pass — they do NOT prove
+// live API compatibility (that lands on the first real-key run).
+test('openAiDirectOpts: drives the SHIPPED callEnrich down the OpenAI path (mock wire)', async () => {
+  (globalThis as any).sessionStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
+  const ai = await import('../../../templates/js/ai.js');
+  ai.setKey('sk-proj-test');
+  try {
+    const calls: Array<{ url: string; body: any }> = [];
+    const opts = openAiDirectOpts(async (url, init) => {
+      calls.push({ url: url as string, body: JSON.parse((init as any).body) });
+      return {
+        status: 200, ok: true,
+        async json() {
+          return { choices: [{ message: { tool_calls: [{ function: { name: 'draft_why_picked', arguments: JSON.stringify({ why_picked: '離車站近,帶小孩方便。', kid_friendly: true }) } }] } }] };
+        },
+      };
+    });
+    const r = await ai.callEnrich({ id: 'x1', name: '測試店', corpus: 'food' }, [], { ...opts });
+    expect(r.ok).toBe(true);
+    expect(r.provider).toBe('openai');
+    expect(r.model).toBe(ai.OPENAI_DEFAULT_MODEL);
+    expect(r.draft).toEqual({ why_picked: '離車站近,帶小孩方便。', kid_friendly: true });
+    expect(calls[0].url).toBe(`${OPENAI_DIRECT_ORIGIN}/v1/chat/completions`);
+    expect(calls[0].body.model).toBe(ai.OPENAI_DEFAULT_MODEL);
+    expect(calls[0].body.tool_choice).toEqual({ type: 'function', function: { name: 'draft_why_picked' } });
+  } finally {
+    ai.clearKey();   // don't leak session key state into other test files
+  }
+});
+
+test('openAiDirectOpts: drives the SHIPPED callVerify down the OpenAI path (mock wire — the verify-run.ts dependency)', async () => {
+  (globalThis as any).sessionStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
+  const ai = await import('../../../templates/js/ai.js');
+  const { callVerify, VERIFY_TOOL_NAME } = await import('../../../templates/js/ai-verify.js');
+  ai.setKey('sk-proj-test');
+  try {
+    const calls: Array<{ url: string; body: any }> = [];
+    const opts = openAiDirectOpts(async (url, init) => {
+      calls.push({ url: url as string, body: JSON.parse((init as any).body) });
+      return {
+        status: 200, ok: true,
+        async json() {
+          return { choices: [{ message: { tool_calls: [{ function: { name: VERIFY_TOOL_NAME, arguments: JSON.stringify({ unsupported_claims: [{ claim: '2025 開幕', confidence: 0.9 }], verdict: 'has_unsupported' }) } }] } }] };
+        },
+      };
+    });
+    // exactly the opts verify-run.ts --provider openai --mode confidence passes
+    const r = await callVerify({ name: '測試店' }, '2025 開幕的新店', { confidence: true, ...opts });
+    expect(r).toEqual({
+      ok: true, unsupported: ['2025 開幕'], claims: [{ claim: '2025 開幕', confidence: 0.9 }],
+      verdict: 'has_unsupported', provider: 'openai', model: ai.OPENAI_DEFAULT_MODEL,
+    });
+    expect(calls[0].url).toBe(`${OPENAI_DIRECT_ORIGIN}/v1/chat/completions`);
+    expect(calls[0].body.tool_choice).toEqual({ type: 'function', function: { name: VERIFY_TOOL_NAME } });
+    const wire = JSON.stringify(calls[0].body.messages);
+    expect(wire).toContain('【信心分數】');       // confidence clause reached the wire
+    expect(wire).toContain('2025 開幕的新店');   // the draft under check did too
+  } finally {
+    ai.clearKey();
+  }
+});
 
 test('parseArg returns the token after the flag, or the fallback', () => {
   const argv = ['bun', 'run.ts', '--arm', 'guard', '--limit', '50'];

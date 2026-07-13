@@ -8,8 +8,9 @@
 // conservative clause (ai-verify VERIFY_STRICT_CLAUSE); `--mode confidence` runs
 // the scored-claims variant (VERIFY_CONFIDENCE_CLAUSE + {claim, confidence}
 // items) whose output verify-pass.ts can threshold-sweep post-hoc. Needs
-// ANTHROPIC_API_KEY + fetch. Prefer `bun precision-ab.ts` — it drives all three
-// modes + scoring in one command.
+// ANTHROPIC_API_KEY + fetch (or OPENAI_API_KEY with `--provider openai` — the
+// informational OpenAI-path variant; `.oai` default artifact names). Prefer
+// `bun precision-ab.ts` — it drives all three modes + scoring in one command.
 //
 //   # 1. produce baseline drafts (run.ts file/anthropic mode) → drafts.baseline.jsonl
 //   # 2. verify them under each mode:
@@ -30,21 +31,34 @@ import { writeFileSync, appendFileSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadVenues, type Venue } from './assemble.ts';
-import { parseArg } from './eval-lib.ts';
+import { parseArg, openAiDirectOpts } from './eval-lib.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const a = (f: string, d?: string) => parseArg(process.argv, f, d);
 
+// --provider openai verifies via the OpenAI BYOK path (OPENAI_API_KEY,
+// gpt-4o-mini self-verify, direct api.openai.com through the eval-lib fetch
+// shim). Default artifact names gain a `.oai` marker — OpenAI-path output must
+// never mix with the canonical Anthropic-path arms.
+const provider = a('--provider', 'anthropic')!;  // 'anthropic' | 'openai'
+if (provider !== 'anthropic' && provider !== 'openai') { console.error(`--provider must be anthropic|openai (got ${provider})`); process.exit(2); }
+const providerSuffix = provider === 'openai' ? '.oai' : '';
+
 const inPath = resolve(HERE, a('--in', 'venues.jsonl')!);
-const draftsPath = resolve(HERE, a('--drafts', 'drafts.baseline.jsonl')!);
+const draftsPath = resolve(HERE, a('--drafts', `drafts.baseline${providerSuffix}.jsonl`)!);
 const mode = a('--mode', 'default')!;            // 'default' | 'strict' | 'confidence'
 const strict = mode === 'strict';
 const confidence = mode === 'confidence';
 const limit = a('--limit') ? Number(a('--limit')) : Infinity;
-const outPath = resolve(HERE, a('--out', `vfy-out.${mode}.jsonl`)!);
+const outPath = resolve(HERE, a('--out', `vfy-out.${mode}${providerSuffix}.jsonl`)!);
 
-const key = process.env.ANTHROPIC_API_KEY;
-if (!key) { console.error('ANTHROPIC_API_KEY required'); process.exit(2); }
+const keyVar = provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
+const key = process.env[keyVar];
+if (!key) { console.error(`${keyVar} required`); process.exit(2); }
+// ai.js routes by key prefix — a mismatched key would verify the WRONG path
+// under the right label (see run.ts).
+if (provider === 'openai' && key.startsWith('sk-ant-')) { console.error('OPENAI_API_KEY holds an Anthropic key (sk-ant-…).'); process.exit(2); }
+if (provider === 'anthropic' && !key.startsWith('sk-ant-')) { console.error('ANTHROPIC_API_KEY does not look like an Anthropic key (sk-ant-…).'); process.exit(2); }
 if (mode !== 'default' && mode !== 'strict' && mode !== 'confidence') { console.error(`--mode must be default|strict|confidence (got ${mode})`); process.exit(2); }
 
 // browser ES modules expect a sessionStorage; ai.setKey stores in-memory anyway.
@@ -53,8 +67,15 @@ const ai = await import('../../../templates/js/ai.js');
 const { callVerify } = await import('../../../templates/js/ai-verify.js');
 ai.setKey(key);
 
-type Draft = { id: string; why_picked: string; kid_friendly?: boolean };
+type Draft = { id: string; why_picked: string; kid_friendly?: boolean; provider?: string };
 const drafts: Draft[] = readFileSync(draftsPath, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+// Metadata beats filenames: drafts dumped by run.ts carry `provider`. Verifying
+// OpenAI drafts under an anthropic label (or vice versa) — even via explicit
+// --drafts overrides — would mislabel an arm; refuse.
+const draftTags = new Set(drafts.map((d) => d.provider).filter(Boolean));
+if (draftTags.size > 1) { console.error(`verify-run: drafts mix providers (${[...draftTags].join(', ')}) — split the file.`); process.exit(2); }
+const draftTag = [...draftTags][0];
+if (draftTag && draftTag !== provider) { console.error(`verify-run: drafts are tagged provider:"${draftTag}" but this run is --provider ${provider}.`); process.exit(2); }
 const byId = new Map(drafts.map((d) => [String(d.id), d]));
 if (byId.size !== drafts.length) {
   // Duplicate ids would silently last-write-wins into the map — a corrupt or
@@ -66,17 +87,18 @@ const matched: Venue[] = loadVenues(inPath).filter((v) => byId.has(String(v.id))
 if (matched.length < byId.size) console.error(`[verify-run] ⚠️ ${byId.size - matched.length} draft id(s) match no venue row (stale/renamed ids?)`);
 const venues: Venue[] = matched.slice(0, limit);
 
-console.error(`[verify-run] mode=${mode} verifying ${venues.length} drafts → ${outPath}`);
+console.error(`[verify-run] provider=${provider} mode=${mode} verifying ${venues.length} drafts → ${outPath}`);
 writeFileSync(outPath, '');   // fresh file; append per row so a crash keeps partial progress
 
+const providerOpts = provider === 'openai' ? openAiDirectOpts() : {};
 let flagged = 0;
 const failed: string[] = [];
 for (const v of venues) {
   const draft = byId.get(String(v.id))!;
-  const r = await callVerify(v, { why_picked: draft.why_picked, kid_friendly: draft.kid_friendly }, { strict, confidence });
+  const r = await callVerify(v, { why_picked: draft.why_picked, kid_friendly: draft.kid_friendly }, { strict, confidence, ...providerOpts });
   if (!r.ok) { console.error(`  verify fail ${v.id}: ${r.error}`); failed.push(String(v.id)); continue; }
   if (r.verdict === 'has_unsupported') flagged++;
-  const row: Record<string, unknown> = { id: v.id, unsupported_claims: r.unsupported, verdict: r.verdict };
+  const row: Record<string, unknown> = { id: v.id, unsupported_claims: r.unsupported, verdict: r.verdict, provider };
   if (confidence) row.claims = (r as any).claims;   // scored variant rides along; binary consumers ignore it
   appendFileSync(outPath, JSON.stringify(row) + '\n');
 }

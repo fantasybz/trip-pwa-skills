@@ -12,14 +12,19 @@
 //   ANTHROPIC_API_KEY=sk-ant-... bun precision-ab.ts --limit 40     # cheap smoke
 //   bun precision-ab.ts --score-only                                # re-score existing vfy-out files, no key
 //
-// Flags: --drafts <jsonl>  (default drafts.baseline.jsonl)
-//        --truth <json>    (default report.baseline.json)
+// Flags: --provider <p>    (anthropic | openai; default anthropic. openai = the
+//                           INFORMATIONAL OpenAI-BYOK-path variant: OPENAI_API_KEY,
+//                           gpt-4o-mini self-verify, `.oai` default artifact names.
+//                           The Codex judge shares that model family, so OpenAI-path
+//                           results never authorize flipping the shipped default.)
+//        --drafts <jsonl>  (default drafts.baseline[.oai].jsonl)
+//        --truth <json>    (default report.baseline[.oai].json)
 //        --modes <csv>     (default default,strict,confidence)
 //        --limit <n>       (forwarded to verify-run.ts)
 //        --reuse           (skip an arm whose vfy-out file already exists — resume)
 //        --score-only      (never call the API; score whatever vfy-out files exist)
 //        --sweep <csv>     (τ list, default 0.5,0.6,0.7,0.75,0.8,0.85,0.9)
-//        --out <md>        (default precision-ab.results.md)
+//        --out <md>        (default precision-ab[.oai].results.md)
 //
 // Preconditions (once, from the existing harness — see the experiment doc):
 //   ANTHROPIC_API_KEY=sk-ant-... bun run.ts --arm baseline --generate anthropic --judge codex
@@ -52,14 +57,18 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const a = (f: string, d?: string) => parseArg(process.argv, f, d);
 const has = (f: string) => process.argv.includes(f);
 
-const draftsPath = resolve(HERE, a('--drafts', 'drafts.baseline.jsonl')!);
-const truthPath = resolve(HERE, a('--truth', 'report.baseline.json')!);
+const provider = a('--provider', 'anthropic')!;   // 'anthropic' | 'openai'
+if (provider !== 'anthropic' && provider !== 'openai') { console.error(`precision-ab: --provider must be anthropic|openai (got ${provider})`); process.exit(2); }
+const providerSuffix = provider === 'openai' ? '.oai' : '';
+
+const draftsPath = resolve(HERE, a('--drafts', `drafts.baseline${providerSuffix}.jsonl`)!);
+const truthPath = resolve(HERE, a('--truth', `report.baseline${providerSuffix}.json`)!);
 const modes = a('--modes', 'default,strict,confidence')!.split(',').map((m) => m.trim()).filter(Boolean);
 const limit = a('--limit');
 const reuse = has('--reuse');
 const scoreOnly = has('--score-only');
 const sweepArg = a('--sweep', '0.5,0.6,0.7,0.75,0.8,0.85,0.9')!;
-const outPath = resolve(HERE, a('--out', 'precision-ab.results.md')!);
+const outPath = resolve(HERE, a('--out', `precision-ab${providerSuffix}.results.md`)!);
 
 const KNOWN = new Set(['default', 'strict', 'confidence']);
 if (!modes.length) { console.error('precision-ab: --modes is empty'); process.exit(2); }
@@ -71,16 +80,28 @@ if (!existsSync(truthPath)) missing.push(truthPath);
 if (!scoreOnly && !existsSync(draftsPath)) missing.push(draftsPath);
 if (missing.length) {
   console.error(`precision-ab: missing prerequisite file(s):\n  ${missing.join('\n  ')}`);
-  console.error('\nProduce them once with the existing harness (needs ANTHROPIC_API_KEY + codex on PATH):');
-  console.error('  ANTHROPIC_API_KEY=sk-ant-... bun run.ts --arm baseline --generate anthropic --judge codex');
+  console.error(`\nProduce them once with the existing harness (needs ${provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} + codex on PATH):`);
+  console.error(`  ${provider === 'openai' ? 'OPENAI_API_KEY=sk-...' : 'ANTHROPIC_API_KEY=sk-ant-...'} bun run.ts --arm baseline --generate ${provider} --judge codex`);
   process.exit(2);
 }
-if (!scoreOnly && !process.env.ANTHROPIC_API_KEY) {
-  console.error('precision-ab: ANTHROPIC_API_KEY required (or use --score-only to re-score existing vfy-out files).');
+const keyVar = provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
+if (!scoreOnly && !process.env[keyVar]) {
+  console.error(`precision-ab: ${keyVar} required (or use --score-only to re-score existing vfy-out files).`);
   process.exit(2);
 }
 
 const truthReport = JSON.parse(readFileSync(truthPath, 'utf8'));
+// Metadata beats filenames (Codex xhigh P1): an .oai truth passed via an
+// explicit --truth override must not be scored under the anthropic label — the
+// caveat and artifact isolation would silently vanish. run.ts records the
+// provider in the report (v0.10.6+: `provider`; older reports: infer from
+// `generatedWith`; file-generated legacy reports carry neither → trust the CLI).
+const truthProvider: string | null =
+  truthReport.provider ?? (truthReport.generatedWith === 'openai' ? 'openai' : truthReport.generatedWith === 'anthropic' ? 'anthropic' : null);
+if (truthProvider && truthProvider !== provider) {
+  console.error(`precision-ab: truth ${truthPath} was generated on the "${truthProvider}" path but this run is --provider ${provider} — rerun with --provider ${truthProvider}.`);
+  process.exit(2);
+}
 const truth = new Map<string, any>(truthReport.rows.map((r: any) => [String(r.id), r]));
 // Draft ids are read whenever the file exists (even under --score-only): they
 // define the EXPECTED joinable id set for the full-run consistency check.
@@ -91,12 +112,12 @@ if (!scoreOnly) {
 }
 
 // ---- run each arm ----------------------------------------------------------------
-const vfyPath = (m: string) => resolve(HERE, `vfy-out.${m}.jsonl`);
+const vfyPath = (m: string) => resolve(HERE, `vfy-out.${m}${providerSuffix}.jsonl`);
 for (const m of modes) {
   const out = vfyPath(m);
   if (scoreOnly) continue;
   if (reuse && existsSync(out) && statSync(out).size > 0) { console.error(`[precision-ab] --reuse: keeping existing ${out}`); continue; }
-  const args = ['bun', 'verify-run.ts', '--drafts', draftsPath, '--mode', m, '--out', out, ...(limit ? ['--limit', limit] : [])];
+  const args = ['bun', 'verify-run.ts', '--provider', provider, '--drafts', draftsPath, '--mode', m, '--out', out, ...(limit ? ['--limit', limit] : [])];
   console.error(`[precision-ab] ▶ ${args.join(' ')}`);
   const child = Bun.spawnSync(args, { cwd: HERE, stdout: 'inherit', stderr: 'inherit', env: process.env as Record<string, string> });
   if (child.exitCode !== 0) { console.error(`precision-ab: verify-run --mode ${m} failed (exit ${child.exitCode}) — aborting, nothing scored.`); process.exit(2); }
@@ -107,6 +128,14 @@ function loadRows(path: string): { rows: VerifyRow[]; dropped: number } {
   const byId = new Map<string, VerifyRow>();
   let dropped = 0;
   for (const r of readJsonl<any>(path)) {
+    // Provider metadata on the row (verify-run v0.10.6+) must match this run —
+    // an .oai vfy file reused/renamed into an anthropic-labeled run would emit
+    // an uncaveated recommendation from the wrong path. Untagged legacy rows
+    // are trusted to the CLI flag.
+    if (typeof r.provider === 'string' && r.provider !== provider) {
+      console.error(`precision-ab: ${path} rows are tagged provider:"${r.provider}" but this run is --provider ${provider} — rerun with --provider ${r.provider} (or delete the stale file).`);
+      process.exit(2);
+    }
     const p = parseVerifyResult(r);
     if (!p.ok) { dropped++; continue; }
     const row: VerifyRow = { id: String(r.id), verdict: p.verdict, unsupported: p.unsupported };
@@ -215,9 +244,13 @@ const cols = [
 ];
 const metricNames = ['flag-rate (UX cost)', 'precision (flags that truly hallucinate)', 'recall on real majors', 'let-through major (GATE ≤10%)'];
 const lines: string[] = [];
-lines.push(`# verifier precision A/B — ${new Date().toISOString().slice(0, 10)}`);
+lines.push(`# verifier precision A/B — ${new Date().toISOString().slice(0, 10)}${provider === 'openai' ? ' — OpenAI path (informational)' : ''}`);
 lines.push('');
-lines.push(`drafts: \`${draftsPath}\` · truth: \`${truthPath}\` (${truthN} rows)` + (limit ? ` · --limit ${limit}` : ''));
+if (provider === 'openai') {
+  lines.push('> ⚠️ **OpenAI-path measurement (informational).** Generator + verifier are the OpenAI BYOK config (gpt-4o-mini self-verify via the harness fetch shim) while the ground-truth judge (Codex) shares the same model family — judge independence is weakened. These numbers characterize the OpenAI path; they do **not** authorize changing the shipped verifier default (that requires the Anthropic-path A/B).');
+  lines.push('');
+}
+lines.push(`provider: ${provider} · drafts: \`${draftsPath}\` · truth: \`${truthPath}\` (${truthN} rows)` + (limit ? ` · --limit ${limit}` : ''));
 lines.push(`joined n per arm: ${arms.map((x) => `${x.mode}=${x.score.n}`).join(' · ')} (identical id sets — enforced)`);
 if (partialCoverage) {
   lines.push('');
@@ -245,9 +278,10 @@ lines.push('');
 lines.push(`## Recommendation`);
 lines.push('');
 if (partialCoverage) lines.push('⚠️ Smoke-run caveat: partial coverage — do NOT act on this without a full-set rerun.');
+if (provider === 'openai') lines.push('ℹ️ OpenAI-path result — informational for the OpenAI BYOK experience; the shipped default stays decided by the Anthropic-path A/B.');
 lines.push(recommendation);
 lines.push('');
-lines.push('Reproduce: `bun precision-ab.ts --score-only` (same vfy-out files) — full re-run needs the key.');
+lines.push(`Reproduce: \`bun precision-ab.ts${provider === 'openai' ? ' --provider openai' : ''} --score-only\` (same vfy-out files) — full re-run needs the key.`);
 lines.push('');
 
 const report = lines.join('\n');

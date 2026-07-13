@@ -51,6 +51,13 @@ truth). Batched so ONE session settles the whole queue:
    gate first (`run.ts --arm baseline` + `--arm guard`) — the numbers in
    RESULTS.md are model-bound. Same for `OPENAI_DEFAULT_MODEL` via the proxy
    path. Not urgent; BYOK users pay per call, so cost/quality is their tradeoff.
+4. **E-OAI (available now, OPENAI_API_KEY only) — OpenAI-path measurement.**
+   Added 2026-07-13 when only an OpenAI key was on hand: `--generate openai` +
+   `precision-ab.ts --provider openai` measure the OpenAI BYOK experience
+   (gpt-4o-mini self-verify; `.oai` artifacts; harness-only fetch shim, browser
+   proxy contract untouched). **Informational** — the Codex judge shares that
+   model family, so E-OAI never flips the shipped default; E1 remains the
+   Anthropic-key decision.
 
 ## Phase 3 — post-trip (revisit after 2026-07-31)
 
