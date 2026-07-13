@@ -71,9 +71,11 @@ Small, but they gate anyone else actually using the bundle:
 
 1. **LICENSE — DONE (v0.10.2, 2026-07-13):** MIT, per the "you own it" thesis.
 2. **Standalone repo — DONE (2026-07-13):** the bundle is published to
-   `github.com/fantasybz/trip-pwa-skills` via `git subtree` (the Quickstart
-   clone URL is live). The monorepo directory stays the source of truth — sync
-   recipe + the never-commit-to-mirror rule in `CLAUDE.md` "Standalone mirror".
+   `github.com/fantasybz/trip-pwa-skills` as clean snapshot commits (the
+   Quickstart clone URL is live; fresh clone runs 246/246 tests). The monorepo
+   directory stays the source of truth — sync recipe (commit-tree snapshots,
+   never subtree split: split would replay pre-sanitization history) + the
+   never-commit-to-mirror rule in `CLAUDE.md` "Standalone mirror".
    Pre-publish hygiene done: family names sanitized out of the gold set
    (role aliases only — keep it that way in future venue data), no keys/emails/
    local paths in the bundle.

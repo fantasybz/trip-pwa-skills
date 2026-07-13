@@ -111,5 +111,5 @@ See `CLAUDE.md` for conventions and `docs/` for the per-version plans.
 [MIT](LICENSE).
 
 This repo is the public mirror of the `trip-pwa-skills/` directory inside a
-private family-trip monorepo, published via `git subtree` — development happens
+private family-trip monorepo, published as snapshot syncs — development happens
 there; issues and PRs are welcome here and get folded back upstream.

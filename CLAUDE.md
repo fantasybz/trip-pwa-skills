@@ -54,17 +54,24 @@ PRs/issues back here, then re-publish. Sync after changes land on `main`:
 
 ```bash
 git remote add tps-mirror-remote https://github.com/fantasybz/trip-pwa-skills.git 2>/dev/null || true
-git subtree split --prefix=trip-pwa-skills origin/main -b tps-mirror
-git push tps-mirror-remote tps-mirror:main
-git branch -D tps-mirror
+TREE=$(git rev-parse "origin/main:trip-pwa-skills")
+PARENT=$(git ls-remote tps-mirror-remote refs/heads/main | cut -f1)
+COMMIT=$(git commit-tree "$TREE" ${PARENT:+-p "$PARENT"} -m "sync: trip-pwa-skills @ monorepo $(git rev-parse --short origin/main)")
+git push tps-mirror-remote "$COMMIT:refs/heads/main"
 ```
 
-The split is deterministic over unchanged history, so pushes stay fast-forward.
+**Snapshot syncs, NEVER `git subtree split/push`.** A subtree split replays
+this directory's FULL monorepo history into the mirror — including
+pre-sanitization blobs (the eval gold set carried family names before
+v0.10.2). The mirror's history must only ever contain current-tree snapshots;
+each sync is one commit that parents the previous mirror head (fast-forward by
+construction) and names the monorepo sha it mirrors.
+
 Because the mirror is public: no family names in any committed data (venues
 gold set uses role aliases like 媽媽/爸爸 — enforced expectation, not just
 habit), no keys, no local paths. `.gitignore` here must stay
 standalone-complete (the monorepo root .gitignore does not travel with the
-subtree). `package.json` keeps `private: true` on purpose — it blocks an
+snapshot). `package.json` keeps `private: true` on purpose — it blocks an
 accidental `npm publish`; repo-public ≠ npm-published.
 
 ## Install
