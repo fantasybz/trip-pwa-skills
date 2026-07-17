@@ -18,10 +18,11 @@
 // Title: if --title is given it's used; otherwise YouTube oEmbed is fetched
 // (no API key). If neither works, the item is skipped with a message.
 
-import { readFile, writeFile, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { regenerateServiceWorker } from '../_lib/regenerate-sw';
 import { urlKey } from '../_lib/url-key';
+import { acquireTripWriteLock, atomicWriteFile } from '../_lib/safe-trip-write';
 
 interface Args { [k: string]: string }
 function parseArgs(argv: string[]): Args {
@@ -36,18 +37,51 @@ function parseArgs(argv: string[]): Args {
   return a;
 }
 
-interface Item {
+export interface Item {
   url?: string; day?: string; context?: string; title?: string;
   source?: string; lang?: string; 'kid-friendly'?: string | boolean;
   'duration-min'?: string | number; summary?: string; type?: string;
 }
 
-interface RefEntry {
+export interface RefEntry {
   type: string; title: string; url: string; source: string; lang: string;
   context: string; duration_min?: number; kid_friendly: boolean; summary?: string;
 }
 
+const BATCH_STRING_FIELDS: (keyof Item)[] = [
+  'url', 'day', 'context', 'title', 'source', 'lang', 'summary', 'type',
+];
+
+function validateBatchItem(value: unknown, index: number): string | null {
+  if (!isPlainObject(value)) return `--batch item ${index} must be an object`;
+  const item = value as Item;
+  for (const field of BATCH_STRING_FIELDS) {
+    if (item[field] != null && typeof item[field] !== 'string') {
+      return `--batch item ${index}.${field} must be a string`;
+    }
+  }
+  const kidFriendly = item['kid-friendly'];
+  if (kidFriendly != null && typeof kidFriendly !== 'boolean'
+    && kidFriendly !== 'true' && kidFriendly !== 'false') {
+    return `--batch item ${index}.kid-friendly must be true or false`;
+  }
+  const duration = item['duration-min'];
+  if (duration != null && typeof duration !== 'string' && typeof duration !== 'number') {
+    return `--batch item ${index}.duration-min must be a string or number`;
+  }
+  return null;
+}
+
 function bool(v: unknown): boolean { return v === true || v === 'true'; }
+
+function firstText(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const text = value.trim();
+    if (text) return text;
+  }
+  return '';
+}
 
 // http(s)-only; returns canonical href or null (Day-2 Codex URL-sink lesson).
 function safeUrl(raw: string): string | null {
@@ -69,7 +103,7 @@ function hostSource(url: string): string {
 }
 
 // YouTube oEmbed — title + author, no API key. Returns null on any failure.
-async function fetchOembed(url: string): Promise<{ title: string; author: string } | null> {
+export async function fetchOembed(url: string): Promise<{ title: string; author: string } | null> {
   if (!/youtube\.com|youtu\.be/.test(url)) return null;
   try {
     const o = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
@@ -118,6 +152,99 @@ async function dayIds(out: string): Promise<Set<string>> {
   return new Set();
 }
 
+export interface PreparedRef {
+  entry: RefEntry;
+  key: string;
+}
+export interface PreparedRefsResult {
+  prepared: PreparedRef[];
+  skipped: number;
+  log: string[];
+}
+export type OembedFetcher = (url: string) => Promise<{ title: string; author: string } | null>;
+
+// Resolve slow remote metadata before acquiring the trip-wide write lock. A
+// small worker pool bounds fan-out while preserving the source order in the
+// returned results, so batch logs and duplicate resolution stay deterministic.
+export async function prepareRefItems(
+  items: Item[],
+  fetcher: OembedFetcher = fetchOembed,
+  concurrency = 4,
+): Promise<PreparedRefsResult> {
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error('refs-ingest metadata concurrency must be a positive integer');
+  }
+  const results: Array<PreparedRef | string> = new Array(items.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      const it = items[index];
+      const rawTitle = firstText(it.title);
+      const url = firstText(it.url) ? safeUrl(firstText(it.url)) : null;
+      if (!url) {
+        results[index] = `skip: missing/invalid url${rawTitle ? ` (${rawTitle})` : ''}`;
+        continue;
+      }
+      const context = firstText(it.context, it.day);
+      if (!context) {
+        results[index] = `skip: no --day/--context for ${rawTitle || url}`;
+        continue;
+      }
+
+      const durRaw = it['duration-min'];
+      let duration_min: number | undefined;
+      if (durRaw != null && durRaw !== '' && durRaw !== 'true') {
+        if (!/^\d+$/.test(String(durRaw)) || Number(durRaw) < 1 || Number(durRaw) > 600) {
+          results[index] = `skip: --duration-min must be a positive integer minutes (got ${durRaw})`;
+          continue;
+        }
+        duration_min = Number(durRaw);
+      }
+
+      let title = rawTitle;
+      let source = firstText(it.source);
+      if (!title) {
+        const metadata = await fetcher(url);
+        if (metadata) {
+          title = firstText(metadata.title);
+          source = source || firstText(metadata.author);
+        }
+      }
+      if (!title) {
+        results[index] = `skip: no --title and oEmbed unavailable for ${url}`;
+        continue;
+      }
+      if (!source) source = hostSource(url);
+
+      results[index] = {
+        key: urlKey(url),
+        entry: {
+          type: firstText(it.type) || refType(url),
+          title,
+          url,
+          source,
+          lang: firstText(it.lang) || 'zh-tw',
+          context,
+          kid_friendly: bool(it['kid-friendly']),
+          ...(duration_min != null ? { duration_min } : {}),
+          ...(firstText(it.summary) ? { summary: firstText(it.summary) } : {}),
+        },
+      };
+    }
+  };
+
+  await Promise.all(Array.from(
+    { length: Math.min(concurrency, Math.max(1, items.length)) },
+    () => worker(),
+  ));
+  const prepared = results.filter((value): value is PreparedRef => typeof value !== 'string');
+  const log = results.filter((value): value is string => typeof value === 'string');
+  return { prepared, skipped: log.length, log };
+}
+
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   const out = a.out;
@@ -131,9 +258,17 @@ async function main() {
   if (a.batch) {
     const parsed = JSON.parse(await readFile(a.batch, 'utf8'));
     if (!Array.isArray(parsed)) { console.error('--batch file must be a JSON array'); process.exit(2); }
-    items = parsed;
+    for (const [index, item] of parsed.entries()) {
+      const error = validateBatchItem(item, index);
+      if (error) { console.error(error); process.exit(2); }
+    }
+    items = parsed as Item[];
   } else {
     if (!a.url) { console.error('Required: --url, or --batch <file>'); process.exit(2); }
+    if (!firstText(a.day, a.context)) {
+      console.error('Required for a single ref: --day <day_N> (or --context <day_N>)');
+      process.exit(2);
+    }
     items = [{
       url: a.url, day: a.day, context: a.context, title: a.title, source: a.source,
       lang: a.lang, 'kid-friendly': a['kid-friendly'], 'duration-min': a['duration-min'],
@@ -141,74 +276,52 @@ async function main() {
     }];
   }
 
+  const resolved = await prepareRefItems(items);
   const refsPath = join(out, 'data', 'refs.json');
-  const refs = await readRefs(refsPath);
-  const validDays = await dayIds(out);
-  // existing URL keys across all contexts, for normalized dedup (Codex P2)
-  const seen = new Set<string>();
-  for (const arr of Object.values(refs.schedule_refs)) for (const e of arr) if (e?.url) seen.add(urlKey(e.url));
-
-  let added = 0, skipped = 0;
-  const log: string[] = [];
-
-  for (const it of items) {
-    const url = it.url ? safeUrl(it.url) : null;
-    if (!url) { skipped++; log.push(`skip: missing/invalid url${it.title ? ` (${it.title})` : ''}`); continue; }
-    const key = urlKey(url);
-    if (seen.has(key)) { skipped++; log.push(`skip dup url: ${it.title || url}`); continue; }
-
-    // bind to a real day — render.js only shows schedule_refs[<day.id>] (Codex P2)
-    const context = it.context || it.day;
-    if (!context) { skipped++; log.push(`skip: no --day/--context for ${it.title || url}`); continue; }
-    if (validDays.size && !validDays.has(context)) {
-      skipped++;
-      log.push(`skip: --day "${context}" is not a day in days.json (${[...validDays].join(', ') || 'run draft-days first'})`);
-      continue;
+  let added = 0;
+  let skipped = resolved.skipped;
+  const log = [...resolved.log];
+  const releaseWriteLock = await acquireTripWriteLock(out);
+  try {
+    // Re-read mutable trip state only after locking. Network metadata above may
+    // have taken seconds, so snapshots taken before it would be stale.
+    const refs = await readRefs(refsPath);
+    const validDays = await dayIds(out);
+    const seen = new Set<string>();
+    for (const arr of Object.values(refs.schedule_refs)) {
+      for (const entry of arr) if (entry?.url) seen.add(urlKey(entry.url));
     }
 
-    let title = it.title;
-    let source = it.source || '';
-    if (!title) {
-      const o = await fetchOembed(url);
-      if (o) { title = o.title; source = source || o.author; }
-    }
-    if (!title) { skipped++; log.push(`skip: no --title and oEmbed unavailable for ${url}`); continue; }
-    if (!source) source = hostSource(url);
-
-    // duration_min: positive integer only (Codex P3)
-    const durRaw = it['duration-min'];
-    let duration_min: number | undefined;
-    if (durRaw != null && durRaw !== '' && durRaw !== 'true') {
-      if (!/^\d+$/.test(String(durRaw)) || Number(durRaw) < 1 || Number(durRaw) > 600) {
-        skipped++; log.push(`skip: --duration-min must be a positive integer minutes (got ${durRaw})`); continue;
+    for (const item of resolved.prepared) {
+      const { entry, key } = item;
+      if (seen.has(key)) {
+        skipped++;
+        log.push(`skip dup url: ${entry.title || entry.url}`);
+        continue;
       }
-      duration_min = Number(durRaw);
+      if (validDays.size && !validDays.has(entry.context)) {
+        skipped++;
+        log.push(`skip: --day "${entry.context}" is not a day in days.json (${[...validDays].join(', ') || 'run draft-days first'})`);
+        continue;
+      }
+      (refs.schedule_refs[entry.context] ??= []).push(entry);
+      seen.add(key);
+      added++;
+      log.push(`refs += ${entry.title} → schedule_refs[${entry.context}] (${entry.type})`);
     }
 
-    const entry: RefEntry = {
-      type: it.type || refType(url),
-      title,
-      url,
-      source,
-      lang: it.lang || 'zh-tw',
-      context,
-      kid_friendly: bool(it['kid-friendly']),
-      ...(duration_min != null ? { duration_min } : {}),
-      ...(it.summary ? { summary: it.summary } : {}),
-    };
-
-    (refs.schedule_refs[context] ??= []).push(entry);
-    seen.add(key);
-    added++;
-    log.push(`refs += ${title} → schedule_refs[${context}] (${entry.type})`);
-  }
-
-  if (added) {
-    await writeFile(refsPath, JSON.stringify(refs, null, 2) + '\n');
+    if (added) await atomicWriteFile(refsPath, JSON.stringify(refs, null, 2) + '\n');
+    // Always reconcile the offline manifest, including a duplicate/no-op retry.
+    // A prior invocation may have committed refs.json and then failed during SW
+    // generation; dedup on retry repairs that partial transaction.
     await regenerateServiceWorker(out);
+  } finally {
+    await releaseWriteLock();
   }
   for (const line of log) console.log('  ' + line);
   console.log(`✓ ${added} → refs.json, ${skipped} skipped`);
 }
 
-main().catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
+if (import.meta.main) {
+  main().catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
+}

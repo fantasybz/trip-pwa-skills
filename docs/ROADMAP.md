@@ -1,4 +1,4 @@
-# trip-pwa-skills roadmap (written 2026-07-13, post-v0.10)
+# trip-pwa-skills roadmap (updated 2026-07-17, post-v0.11)
 
 The core arc (① skill bundle → ②-A edit mode → ②-B BYOK enrich + verify-pass)
 is shipped and gate-passing. This is the follow-through map: what's staged,
@@ -6,7 +6,7 @@ what's blocked on a key session, what's deliberately post-trip (Tokyo trip
 2026-07-23 → ~08-01; the trip itself is the live priority until then), and the
 release-readiness decisions only the owner can make.
 
-## Phase 1 — staged and done (this PR, v0.10.1)
+## Phase 1 — shipped (v0.10.1)
 
 No-key, default-preserving hardening of the precision experiment:
 
@@ -59,6 +59,40 @@ truth). Batched so ONE session settles the whole queue:
    model family, so E-OAI never flips the shipped default; E1 remains the
    Anthropic-key decision.
 
+## Phase 2.5 — cross-city family parity (v0.11, 2026-07-17)
+
+Five-role dogfood across Seoul / Bangkok / Singapore / London / HCMC is
+documented in `docs/parity-dogfood-20260717.md`. Verdict: product shell 9/10,
+overall content 7.3–7.6/10; truthful but skeleton-grade. This phase shipped the
+safe, architecture-compatible fixes:
+
+- lossless candidate → corpus promote (family why/local name/ground detail);
+- explicit `food-ingest --to` plus confirmed corpus `--from … --to …` correction;
+- destination-neutral schedule `local_name` and common venue local name;
+- richer contingency / prep-ref preservation;
+- validated Traveler age-band subset;
+- launch check fails closed when Playwright is missing;
+- default `family` quality floor for schedule/backup/ref/venue depth
+  (`--no-quality` is an explicit partial escape hatch);
+- direct-edit SW recovery CLI and corrected batch/general-ref docs.
+
+The quality profile is intentionally a floor, not a “Tokyo-equivalent” badge;
+all five original artifacts fail it, which is the expected honest result.
+
+Next parity tranche, in order:
+
+1. **B.3.b authoring assistant** — research-backed trigger → alternative →
+   official source / prep refs, constrained by Traveler[] and same-day geography.
+2. **Geocoding policy** — coords + source + precision, never invented values.
+3. **Five-persona rerun** — gate pass + independent authenticity/language review,
+   target ≥8.5 overall and no R1–R7 dimension below 8.
+4. **B.3.c replan** only after static carry-ready quality; do not conflate live
+   replanning with a shallow source artifact.
+
+The old Cloudflare Worker / Durable Object sync foundation remains an owner
+decision. It did not ship, and current evidence does not justify reviving it as
+part of the content-parity path.
+
 ## Phase 3 — post-trip (revisit after 2026-07-31)
 
 Per `docs/v0.10-saas-scoping.md`, unchanged:
@@ -78,9 +112,9 @@ Small, but they gate anyone else actually using the bundle:
 
 1. **LICENSE — DONE (v0.10.2, 2026-07-13):** MIT, per the "you own it" thesis.
 2. **Standalone repo — DONE (2026-07-13):** the bundle is published to
-   `github.com/fantasybz/trip-pwa-skills` as clean snapshot commits (the
-   Quickstart clone URL is live; fresh clone runs 246/246 tests). The monorepo
-   directory stays the source of truth — sync recipe (commit-tree snapshots,
+   `github.com/fantasybz/trip-pwa-skills` as clean snapshot commits. The
+   Quickstart clone URL is live, and the v0.11 release suite runs 329/329 tests.
+   The monorepo directory stays the source of truth — sync recipe (commit-tree snapshots,
    never subtree split: split would replay pre-sanitization history) + the
    never-commit-to-mirror rule in `CLAUDE.md` "Standalone mirror".
    Pre-publish hygiene done: family names sanitized out of the gold set

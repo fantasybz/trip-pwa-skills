@@ -2,12 +2,15 @@
 // Integration test: --from-tokyo-seed runs the real scaffold (icons + SW + seed
 // copy) and must produce a fully-populated Tokyo demo from --out alone.
 import { test, expect } from 'bun:test';
-import { mkdtemp, mkdir, rm, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, rename, rm, readFile, writeFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  commitStagingIntoExisting, createScaffoldStaging, ScaffoldCommitError,
+} from './scaffold';
 
 const scaffold = fileURLToPath(new URL('./scaffold.ts', import.meta.url));
 
@@ -30,6 +33,7 @@ test('--from-tokyo-seed --out alone produces a populated Tokyo demo', async () =
     expect(trip.dates.start).toBe('2026-07-20');
     expect(trip.dates.end).toBe('2026-07-22');        // days defaulted from seed dates
     expect(trip.title).toContain('東京');
+    expect(trip.travelers).toEqual([{ age_band: 'school' }]);
 
     // food carries the v0.2.3 on-the-ground detail
     expect(food.length).toBeGreaterThanOrEqual(3);
@@ -86,7 +90,7 @@ test('scaffolds into an EXISTING dotfile-only dir, no EINVAL (dogfood C3)', asyn
   } finally { await rm(base, { recursive: true, force: true }); }
 }, 20000);
 
-test('scaffolds with a literal --out . (cwd dir; staging = ..tmp-pid) and cleans up (codex P3)', async () => {
+test('scaffolds with a literal --out . using an exclusive sibling staging dir and cleans up', async () => {
   const base = await mkdtemp(join(tmpdir(), 'tokyo-seed-'));
   const out = join(base, 'cwd');
   await mkdir(out, { recursive: true });
@@ -99,3 +103,71 @@ test('scaffolds with a literal --out . (cwd dir; staging = ..tmp-pid) and cleans
     expect(leftover).toHaveLength(0);              // staging dir removed
   } finally { await rm(base, { recursive: true, force: true }); }
 }, 20000);
+
+test('staging uses exclusive unpredictable siblings and never reuses a pre-created predictable dir', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'scaffold-staging-'));
+  const out = join(base, 'trip');
+  const attacker = join(base, '.trip.tmp-attacker');
+  try {
+    await mkdir(attacker);
+    await writeFile(join(attacker, 'keep.txt'), 'untouched\n');
+    const first = await createScaffoldStaging(out);
+    const second = await createScaffoldStaging(out);
+    expect(first).not.toBe(second);
+    expect(first).not.toBe(attacker);
+    expect(second).not.toBe(attacker);
+    expect(await readFile(join(attacker, 'keep.txt'), 'utf8')).toBe('untouched\n');
+    await rm(first, { recursive: true, force: true });
+    await rm(second, { recursive: true, force: true });
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test('rollback failure preserves both target and staging evidence for manual recovery', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'scaffold-rollback-'));
+  const out = join(base, 'existing');
+  const staging = join(base, 'staging');
+  try {
+    await mkdir(out);
+    await mkdir(staging);
+    await writeFile(join(staging, 'first.txt'), 'first\n');
+    await writeFile(join(staging, 'second.txt'), 'second\n');
+    let movedOnce = false;
+    const injectedRename = async (from: string, to: string) => {
+      if (from.startsWith(staging) && !movedOnce) {
+        movedOnce = true;
+        return await rename(from, to);
+      }
+      if (from.startsWith(staging)) throw new Error('injected commit failure');
+      throw new Error('injected rollback failure');
+    };
+
+    let thrown: unknown;
+    try { await commitStagingIntoExisting(staging, out, injectedRename); }
+    catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(ScaffoldCommitError);
+    expect((thrown as ScaffoldCommitError).preserveStaging).toBe(true);
+    expect((thrown as Error).message).toContain('rollback was incomplete');
+    expect(existsSync(staging)).toBe(true);
+    expect((await readdir(out)).length).toBe(1);
+    expect((await readdir(staging)).length).toBe(1);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test('existing-target commit never overwrites a file created while staging was built', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'scaffold-collision-'));
+  const out = join(base, 'existing');
+  const staging = join(base, 'staging');
+  try {
+    await mkdir(out);
+    await mkdir(staging);
+    await writeFile(join(staging, 'index.html'), 'generated\n');
+    await writeFile(join(out, 'index.html'), 'concurrent user file\n');
+    let thrown: unknown;
+    try { await commitStagingIntoExisting(staging, out); }
+    catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(ScaffoldCommitError);
+    expect((thrown as ScaffoldCommitError).preserveStaging).toBe(true);
+    expect(await readFile(join(out, 'index.html'), 'utf8')).toBe('concurrent user file\n');
+    expect(await readFile(join(staging, 'index.html'), 'utf8')).toBe('generated\n');
+  } finally { await rm(base, { recursive: true, force: true }); }
+});

@@ -336,6 +336,12 @@
   font-size: 13px;
   color: var(--alert);
 }
+.data-error-message {
+  margin: 10px 0 0;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--alert);
+}
 
 /* ============================================================================
    ②-A EDIT MODE (Lane C). All in the LOCKED palette — no new colors beyond the

@@ -63,14 +63,19 @@ function keyOf(name) { return name.replace(/\.json$/, ''); }
 // ---- support gating (Q3) ----------------------------------------------------
 // FSA write-back only makes sense on a local serve (the served files ARE the
 // files the user can pick). gh-pages can't be detected reliably, so gate
-// positively on localhost rather than sniffing for "not gh-pages".
+// positively on localhost rather than sniffing for "not gh-pages". The one
+// reserved non-loopback host is the trusted Playwright harness; requiring both
+// navigator.webdriver and a secure context keeps that test escape hatch closed
+// in an ordinary browser.
 export function fsaSupported() {
   try {
     if (typeof window === 'undefined') return false;
     if (typeof window.showDirectoryPicker !== 'function') return false;
     if (!window.isSecureContext) return false;
     const host = (window.location && window.location.hostname) || '';
-    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    const local = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    const trustedHarness = host === 'trip-pwa.test' && window.navigator?.webdriver === true;
+    return local || trustedHarness;
   } catch (_) { return false; }
 }
 

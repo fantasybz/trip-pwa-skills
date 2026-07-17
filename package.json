@@ -1,6 +1,6 @@
 {
   "name": "trip-pwa-skills",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -10,5 +10,8 @@
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
   }
 }

@@ -1,6 +1,8 @@
 # 我把 60+ commits 的東京家族旅行 PWA，抽成了一個 Claude Code skill bundle
 
-> 草稿 (DRAFT) — 發佈前再潤。受眾：會用 Claude Code、帶小孩、會自己規劃海外家族旅行的 dev。
+> 歷史草稿（v0.1，未發佈）— 保留當時的產品敘事，不作為目前功能或操作說明。
+> 現行 Quickstart 與狀態以 [`README.md`](../README.md) 為準；v0.11 跨城市品質證據見
+> [`parity-dogfood-20260717.md`](parity-dogfood-20260717.md)。
 
 ## 起點：一份「過度用心」的旅行 App
 

@@ -137,7 +137,12 @@ test('corpus picker is arrow-key navigable (radiogroup roving)', async ({ page }
 test('promote a 待分類 candidate via 分類到… → row leaves the backlog, enters the corpus', async ({ page }) => {
   await seed(page, {
     trip: TRIP, days: [DAY1], food: [],
-    candidates: [{ id: 'cand-x', name_zh: '謎之店', candidate_for: null }],
+    candidates: [{
+      id: 'cand-x', name_zh: '謎之店', name_jp_or_local: 'Mystery Shop', candidate_for: null,
+      day_hint: 'day_1', anchor: '河岸', category: 'noodles', kid_friendly: true,
+      why_picked: '孩子可共食。', backup_fit: '下雨可用', address: '1 Main St',
+      hours: '09:00-18:00', maps_query: 'Mystery Shop City', last_verified: '2026-06-01',
+    }],
   });
   await page.goto('/index.html');
   await ready(page);
@@ -146,13 +151,52 @@ test('promote a 待分類 candidate via 分類到… → row leaves the backlog,
   await page.locator('.edit-promote-btn').click();
   const picker = page.locator('.edit-picker-inline');
   await expect(picker).toBeVisible();
-  await picker.locator('.edit-chip[data-key="desserts"]').click();
+  await picker.locator('.edit-chip[data-key="food"]').click();
   await page.locator('.edit-promote-confirm').click();
-  await expect(page.locator('.venue-corpus').filter({ hasText: '甜點' })).toBeVisible();
+  await expect(page.locator('.venue-corpus').filter({ hasText: '美食' })).toBeVisible();
   await expect(page.locator('.food-view')).toContainText('謎之店');
   await expect(page.locator('#edit-toast')).toContainText('已分類到');
   // 待分類 header gone (the only candidate was promoted)
   await expect(page.locator('.venue-pending')).toHaveCount(0);
+  const moved = await page.evaluate(async () => {
+    const { getRenderState } = await import('/js/render.js');
+    return Object.values(getRenderState().overlay.food.upserts)[0];
+  });
+  expect(moved).toMatchObject({
+    id: 'cand-x',
+    name_jp_or_local: 'Mystery Shop', day_keys: ['day_1'], anchor: '河岸',
+    category: 'noodles', kid_friendly: true, why_picked: '孩子可共食。',
+    backup_fit: '下雨可用', address: '1 Main St', hours: '09:00-18:00',
+    maps_query: 'Mystery Shop City', last_verified: '2026-06-01',
+  });
+});
+
+test('browser promotion preserves legacy aliases and why/hook fallbacks like the CLI', async ({ page }) => {
+  await seed(page, {
+    trip: TRIP, days: [DAY1], food: [],
+    candidates: [{
+      id: 'legacy-cand', name_zh: '別名候選', name_jp_or_local: '   ', local_name: '현지 이름',
+      'day-hint': 'day_1', why_picked: '   ', why: '   ', hook: '保留的家庭理由',
+      'backup-fit': '雨天備案', 'maps-query': '현지 이름 exact',
+      'kid-friendly': 'true', url: 'https://example.com/source', last_seen: '2026-05-02',
+    }],
+  });
+  await page.goto('/index.html');
+  await ready(page);
+  await enterEditMode(page);
+  await page.locator('.edit-promote-btn').click();
+  await page.locator('.edit-chip[data-key="food"]').click();
+  await page.locator('.edit-promote-confirm').click();
+  const moved = await page.evaluate(async () => {
+    const { getRenderState } = await import('/js/render.js');
+    return getRenderState().overlay.food.upserts['legacy-cand'];
+  });
+  expect(moved).toMatchObject({
+    id: 'legacy-cand', name_jp_or_local: '현지 이름', day_keys: ['day_1'],
+    why_picked: '保留的家庭理由', backup_fit: '雨天備案',
+    maps_query: '현지 이름 exact', kid_friendly: true,
+    source_url: 'https://example.com/source', last_verified: '2026-05-02',
+  });
 });
 
 test('two promote pickers never cross-contaminate — opening a second closes the first (Codex P1)', async ({ page }) => {
@@ -323,6 +367,11 @@ test('toast host is a polite live region; banner host is an alert', async ({ pag
 // real createWritable / permission persistence are the manual smoke (T8).
 async function installFsaMock(page: Page, seedDaysJson: string) {
   await page.addInitScript((daysJson: string) => {
+    // The trusted runner uses an isolated reserved hostname so its proxy bypass
+    // cannot reach arbitrary localhost services. That HTTP origin is not a
+    // naturally secure context, so mock this FSA prerequisite together with the
+    // unavailable directory-picker API.
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
     const writes: Record<string, string> = {};
     (window as any).__fsaWrites = writes;
     const CORPUS = ['food.json', 'desserts.json', 'attractions.json', 'fandom.json', 'nearby.json', 'feed_candidates.json'];

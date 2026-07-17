@@ -13,14 +13,15 @@
 //     --start 2026-07-20 --out ./kyoto-trip [--title "京都家族 5 日"] \
 //     [--travelers '[{"age_band":"school"}]']
 
-import { mkdir, readdir, readFile, writeFile, cp, stat, lstat, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile, cp, stat, lstat, rename, rm, link, unlink, rmdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { regenerateServiceWorker } from './regenerate-sw';
 import { generateIcons, firstGrapheme } from './icon-gen';
 import { VENUE_CORPORA } from './corpora';
 import { transpileBrowserModules } from './transpile-browser-modules';
+import { isTravelerAgeBand, TRAVELER_AGE_BANDS } from './traveler-schema';
 // Reuse the SHIPPED validator so scaffold-time --openai-proxy validation can't
 // drift from the runtime check in ai.js (single source of truth).
 import { resolveOpenAiChatUrl } from '../../templates/js/ai.js';
@@ -79,6 +80,85 @@ function fillHtml(tpl: string, vars: Record<string, string>): string {
     key in vars ? escHtml(vars[key]) : `{{${key}}}`);
 }
 
+type MoveFn = (from: string, to: string) => Promise<unknown>;
+
+export class ScaffoldCommitError extends Error {
+  preserveStaging: boolean;
+  rollbackFailures: string[];
+
+  constructor(message: string, preserveStaging: boolean, rollbackFailures: string[] = []) {
+    super(message);
+    this.name = 'ScaffoldCommitError';
+    this.preserveStaging = preserveStaging;
+    this.rollbackFailures = rollbackFailures;
+  }
+}
+
+export async function createScaffoldStaging(out: string): Promise<string> {
+  const resolvedOut = resolve(out);
+  const parent = dirname(resolvedOut);
+  await mkdir(parent, { recursive: true });
+  // mkdtemp creates a brand-new sibling exclusively. Never reuse a predictable
+  // ${out}.tmp-${pid} path that an attacker or stale run could pre-populate.
+  return await mkdtemp(join(parent, `.${basename(resolvedOut)}.tmp-`));
+}
+
+// Move a trusted staging tree without replacing any destination entry. POSIX
+// rename() may silently replace a file (or an empty directory) created in the
+// target while the scaffold was building. Hard-link+unlink gives files an
+// atomic no-replace commit; exclusive mkdir applies the same rule recursively
+// to directories. Staging is a sibling, so hard links stay on one filesystem.
+export async function moveNoReplace(from: string, to: string): Promise<void> {
+  const source = await lstat(from);
+  if (source.isSymbolicLink()) throw new Error(`refusing to commit a staging symlink: ${from}`);
+  if (source.isFile()) {
+    await link(from, to); // EEXIST is a hard failure; existing user bytes survive.
+    await unlink(from);
+    return;
+  }
+  if (!source.isDirectory()) throw new Error(`unsupported staging entry: ${from}`);
+  await mkdir(to, { mode: source.mode & 0o777 }); // exclusive, never recursive
+  for (const entry of await readdir(from)) {
+    await moveNoReplace(join(from, entry), join(to, entry));
+  }
+  await rmdir(from);
+}
+
+export async function commitStagingIntoExisting(
+  staging: string,
+  out: string,
+  moveFn: MoveFn = moveNoReplace,
+): Promise<void> {
+  const moved: string[] = [];
+  try {
+    for (const entry of await readdir(staging)) {
+      await moveFn(join(staging, entry), join(out, entry));
+      moved.push(entry);
+    }
+  } catch (cause) {
+    const rollbackFailures: string[] = [];
+    for (const entry of [...moved].reverse()) {
+      try { await moveFn(join(out, entry), join(staging, entry)); }
+      catch (error) {
+        rollbackFailures.push(`${entry}: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    if (rollbackFailures.length) {
+      throw new ScaffoldCommitError(
+        `commit failed and rollback was incomplete (${rollbackFailures.join('; ')}); ` +
+        `preserve target ${out} and staging ${staging} for manual recovery`,
+        true,
+        rollbackFailures,
+      );
+    }
+    throw new ScaffoldCommitError(
+      `commit failed but completed entries were rolled back; preserve staging for inspection: ${cause instanceof Error ? cause.message : cause}`,
+      true,
+    );
+  }
+  await rm(staging, { recursive: true, force: true });
+}
+
 async function main() {
   const a = parseArgs(process.argv.slice(2));
 
@@ -108,6 +188,9 @@ async function main() {
     a.start = seedTrip.dates.start;
     a.title = seedTrip.title;
     a.days = String(Math.round((ms(seedTrip.dates.end) - ms(seedTrip.dates.start)) / 86400000) + 1);
+    // Preserve the curated demo's family context unless the caller explicitly
+    // supplies a different Traveler[]. The same validator below still applies.
+    if (a.travelers == null) a.travelers = JSON.stringify(seedTrip.travelers ?? []);
   }
 
   const city = a.city;
@@ -139,6 +222,25 @@ async function main() {
     try { parsed = JSON.parse(a.travelers); }
     catch { console.error('--travelers must be valid JSON'); process.exit(2); }
     if (!Array.isArray(parsed)) { console.error('--travelers must be a JSON array'); process.exit(2); }
+    for (const [i, traveler] of parsed.entries()) {
+      if (!traveler || typeof traveler !== 'object' || Array.isArray(traveler)) {
+        console.error(`--travelers[${i}] must be an object with age_band`); process.exit(2);
+      }
+      const t = traveler as Record<string, unknown>;
+      if (!isTravelerAgeBand(t.age_band)) {
+        console.error(`--travelers[${i}].age_band must be one of: ${TRAVELER_AGE_BANDS.join('|')}`);
+        process.exit(2);
+      }
+      if (t.age != null && (!Number.isInteger(t.age) || Number(t.age) < 0 || Number(t.age) > 120)) {
+        console.error(`--travelers[${i}].age must be an integer 0..120`); process.exit(2);
+      }
+      if (t.age_months != null && (!Number.isInteger(t.age_months) || Number(t.age_months) < 0 || Number(t.age_months) > 35)) {
+        console.error(`--travelers[${i}].age_months must be an integer 0..35`); process.exit(2);
+      }
+      if (t.role != null && typeof t.role !== 'string') {
+        console.error(`--travelers[${i}].role must be a string`); process.exit(2);
+      }
+    }
     travelers = parsed;
   }
 
@@ -171,14 +273,27 @@ async function main() {
   const cityInitial = firstGrapheme(cityJp || cityName);
   const end = addDaysUTC(start, Math.max(0, days - 1));
 
-  // Build into a sibling staging dir, then rename onto the target only after
+  // Validate the optional proxy before allocating staging so an argument error
+  // cannot strand even an empty temporary directory via process.exit().
+  let openaiBase = '';
+  let openaiConnect = '';
+  const proxyArg = a['openai-proxy'];
+  if (proxyArg != null) {
+    const result = resolveOpenAiChatUrl(proxyArg);
+    if (!result.ok) {
+      console.error(`--openai-proxy invalid (${result.error}): give an https OpenAI-compatible base URL (root, /v1, or full chat path; not api.openai.com; no credentials/query/hash)`);
+      process.exit(2);
+    }
+    openaiBase = String(proxyArg).trim();
+    openaiConnect = ' ' + new URL(openaiBase).origin;
+  }
+
+  // Build into an exclusive sibling staging dir, then rename onto the target only after
   // EVERYTHING (incl. icons + SW) succeeds. A failure (e.g. resvg missing) thus
   // leaves no half-scaffolded target to block a retry (Codex P2). Sibling path
   // keeps the rename on the same filesystem.
-  const staging = `${out}.tmp-${process.pid}`;
+  const staging = await createScaffoldStaging(out);
   try {
-    await mkdir(staging, { recursive: true });
-
     // ---- static dirs copied verbatim ----
     for (const dir of ['css', 'js', 'tests']) {
       await cp(join(templatesDir, dir), join(staging, dir), { recursive: true });
@@ -197,19 +312,6 @@ async function main() {
     // OpenAI is browser-direct-impossible (api.openai.com has no CORS), so its
     // usage is gated on a user-controlled CORS-enabled proxy configured HERE, not
     // at runtime (narrow CSP, no localStorage key-routing footgun — Codex review).
-    let openaiBase = '';
-    let openaiConnect = '';   // ' https://host' appended into connect-src, or ''
-    const proxyArg = a['openai-proxy'];
-    if (proxyArg != null) {
-      const r = resolveOpenAiChatUrl(proxyArg);
-      if (!r.ok) {
-        console.error(`--openai-proxy invalid (${r.error}): give an https OpenAI-compatible base URL (root, /v1, or full chat path; not api.openai.com; no credentials/query/hash)`);
-        process.exit(2);
-      }
-      openaiBase = String(proxyArg).trim();
-      openaiConnect = ' ' + new URL(openaiBase).origin;
-    }
-
     // ---- HTML: single-pass escaped fill ----
     const htmlVars = {
       TRIP_TITLE: title, SHORT_NAME: shortName, LANG: lang,
@@ -266,37 +368,33 @@ async function main() {
     // drop staging. Everything is already built (icons + SW), so this last move
     // is low-risk.
     if (targetExists) {
-      // Move staged entries in, tracking each so a mid-move failure can roll back
-      // — restoring `out` to how we found it (dotfiles only) keeps the "no partial
-      // output" guarantee true even on this non-atomic path (codex P2).
-      const moved: string[] = [];
-      try {
-        for (const entry of await readdir(staging)) {
-          await rename(join(staging, entry), join(out, entry));
-          moved.push(entry);
-        }
-      } catch (e) {
-        for (const entry of moved) {
-          await rename(join(out, entry), join(staging, entry)).catch(() => {});
-        }
-        throw e;   // outer catch removes staging + reports no partial output
-      }
-      await rm(staging, { recursive: true, force: true });
+      // Move staged entries with no-replace semantics. Any failure preserves
+      // staging; completed top-level entries are rolled back when possible, and
+      // a partially moved entry remains visible at both recovery paths.
+      await commitStagingIntoExisting(staging, out);
     } else {
       await rename(staging, out);
     }
     console.log(`  icons: ${icons.map((i) => i.path.split('/').pop()).join(', ')}`);
   } catch (e) {
-    await rm(staging, { recursive: true, force: true }).catch(() => {});
-    console.error(`✗ scaffold failed (no partial output left): ${e instanceof Error ? e.message : e}`);
+    const preserveStaging = e instanceof ScaffoldCommitError && e.preserveStaging;
+    if (!preserveStaging) await rm(staging, { recursive: true, force: true }).catch(() => {});
+    const rollbackIncomplete = e instanceof ScaffoldCommitError && e.rollbackFailures.length > 0;
+    const recovery = preserveStaging
+      ? `${rollbackIncomplete ? 'rollback incomplete' : 'commit aborted'}; recovery evidence preserved at target ${out} and staging ${staging}`
+      : 'no partial output left';
+    console.error(`✗ scaffold failed (${recovery}): ${e instanceof Error ? e.message : e}`);
     process.exit(1);
   }
 
   console.log(`✓ ${cityName} trip PWA scaffolded at ${out}`);
-  console.log(`  Serve:  cd ${out} && python3 -m http.server 8000`);
+  console.log(`  Serve:  cd ${out} && python3 -m http.server 8000 --bind 127.0.0.1`);
+  console.log(`  Audit:  from the trip-pwa-skills root, bun skills/_lib/launch-check.ts --out ${out}`);
   console.log(fromSeed
     ? `  Next:   already filled with the Tokyo demo — serve and open to see it; edit data/*.json to make it yours`
     : `  Next:   Use trip-scaffold draft-days to plan your days`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (import.meta.main) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

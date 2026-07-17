@@ -2,10 +2,53 @@
 // .ts in skills/_lib — DO NOT EDIT. Edit the .ts source + re-run the
 // transpile (any scaffold/ingest does it). Single-source: the CLI runs the
 // .ts, the browser runs this type-erased mirror (eng-review D1).
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value !== "string")
+      continue;
+    const text = value.trim();
+    if (text)
+      return text;
+  }
+  return "";
+}
+function boolish(value) {
+  return value === true || value === "true";
+}
+export function candidateToVenueFields(value, overrides = {}) {
+  const cand = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const candidateDays = Array.isArray(cand.day_keys) ? cand.day_keys.map((day) => firstText(day)).filter(Boolean) : (() => {
+    const day = firstText(cand.day_hint, cand["day-hint"], cand.day);
+    return day ? [day] : [];
+  })();
+  const dayKeys = overrides.day !== undefined ? firstText(overrides.day) ? [firstText(overrides.day)] : [] : candidateDays;
+  const textOverride = (key, ...fallback) => overrides[key] !== undefined ? firstText(overrides[key]) : firstText(...fallback);
+  const idValue = overrides.id ?? cand.id;
+  return {
+    id: idValue == null ? "" : String(idValue),
+    name_zh: firstText(cand.name_zh, cand.name) || "(unnamed)",
+    name_jp_or_local: firstText(cand.name_jp_or_local, cand.local_name, cand["name-jp"]),
+    day_keys: dayKeys,
+    anchor: textOverride("anchor", cand.anchor),
+    category: textOverride("category", cand.category),
+    kid_friendly: overrides.kidFriendly !== undefined ? overrides.kidFriendly : boolish(cand.kid_friendly ?? cand["kid-friendly"]),
+    source_url: firstText(cand.source_url, cand.url),
+    source_platform: firstText(cand.source_platform) || "manual",
+    extraction_method: firstText(cand.extraction_method) || "manual",
+    why_picked: textOverride("why", cand.why_picked, cand.why, cand.hook),
+    backup_fit: firstText(cand.backup_fit, cand["backup-fit"]),
+    address: firstText(cand.address),
+    hours: firstText(cand.hours),
+    price: firstText(cand.price),
+    maps_query: firstText(cand.maps_query, cand["maps-query"]),
+    last_verified: firstText(overrides.today, cand.last_verified, cand.last_seen, overrides.fallbackToday)
+  };
+}
 export function buildVenueEntry(to, f) {
   const generic = {
     id: f.id,
     name_zh: f.name_zh || "(unnamed)",
+    name_jp_or_local: f.name_jp_or_local || "",
     day_keys: f.day_keys || [],
     source_url: f.source_url || "",
     source_platform: f.source_platform || "manual",
@@ -22,7 +65,7 @@ export function buildVenueEntry(to, f) {
   return {
     id: generic.id,
     name_zh: generic.name_zh,
-    name_jp_or_local: f.name_jp_or_local || "",
+    name_jp_or_local: generic.name_jp_or_local,
     day_keys: generic.day_keys,
     anchor: f.anchor || "",
     category: f.category || "restaurant",

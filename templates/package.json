@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "serve": "python3 -m http.server 8799",
+    "serve": "python3 -m http.server 8799 --bind 127.0.0.1",
+    "test:browser": "playwright test --config playwright.config.ts",
     "test:a11y": "playwright test --config playwright.config.ts"
   },
   "devDependencies": {

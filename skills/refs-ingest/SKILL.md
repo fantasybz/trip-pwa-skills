@@ -25,7 +25,11 @@ day (its `context`), not a clock time.
      --url <link> --day day_2 [--title "..."] [--lang zh-tw] \
      [--kid-friendly true] [--duration-min 6] [--summary "<1-line>"]
    ```
-   No `--day` → the ref lands under `schedule_refs["general"]`.
+   `--day` (or batch `context`) is always required: the current renderer shows
+   only `schedule_refs[activeDayId]`, so a synthetic `general` bucket would be
+   invisible. For a trip-wide article, choose one primary preparation day and
+   explain its scope in `summary`; other days need distinct, day-specific sources
+   because duplicate URLs are forbidden across schedule refs.
 
 3. **Report** which day the ref was added to (or that it was skipped as a dup).
 
@@ -38,7 +42,7 @@ day (its `context`), not a clock time.
   "url": "https://...",                    // http(s) only; other schemes rejected
   "source": "...",                         // oEmbed author or the URL host
   "lang": "zh-tw",
-  "context": "day_2",                      // the day it preps (or "general")
+  "context": "day_2",                      // the real day it preps
   "duration_min": 6,                       // optional
   "kid_friendly": true,
   "summary": "..."                         // optional, shown on the prep card
@@ -53,8 +57,14 @@ bun skills/refs-ingest/refs-ingest.ts --out <trip-dir> --batch refs.json
 ```
 
 Reads `refs.json` once, appends all, writes once, regenerates the service worker
-once. Duplicate URLs (across all days) are skipped. A malformed `refs.json` is
-never overwritten — the engine refuses and tells you to fix it.
+once. Slow YouTube metadata is fetched with bounded concurrency before the
+trip-wide write lock; mutable trip data is then re-read under the lock. Duplicate
+URLs (across all days) are skipped. Batch mode is intentionally partial: an item
+with a missing/unknown day, bad URL, bad duration, duplicate URL, or unavailable
+title is counted as skipped while valid siblings are committed, and the command
+exits 0 if the write/SW reconciliation succeeds. Schema-invalid batch input exits
+2 before any write. A malformed existing `refs.json` is never overwritten — the
+engine refuses and tells you to fix it.
 
 ## Note on dup-ref invariant
 

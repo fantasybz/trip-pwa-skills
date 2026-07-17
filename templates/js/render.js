@@ -21,6 +21,22 @@ import { esc, safeUrl } from './sanitize.js';   // D3=C: shared escaper + URL gu
 
 const CITY_INITIAL = document.documentElement.dataset.cityInitial || '?';
 
+function textValue(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function firstNonBlank(...values) {
+  for (const value of values) {
+    const text = textValue(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function withLocalName(primary, local) {
+  return local && local !== primary ? `${primary} · ${local}` : primary;
+}
+
 // ---- shared render state (so edit-mode.js can re-render after a mutation) ----
 // Holds the loaded BASE corpora (on-disk arrays, pre-overlay), the current
 // overlay, and the live re-render closure. Edit-mode reads base for id-gen +
@@ -70,6 +86,38 @@ async function loadJson(path, fallback) {
   }
 }
 
+// Required schedule data must distinguish a legitimate empty array from an
+// HTTP/network/JSON failure. Treating every failure as [] produced a comforting
+// "還沒有行程" false-empty state while real itinerary data was unavailable.
+async function loadRequiredJson(path) {
+  try {
+    const r = await fetch(path, { cache: 'no-store' });
+    if (!r.ok) return { data: null, error: `HTTP ${r.status}` };
+    try { return { data: await r.json(), error: '' }; }
+    catch (_) { return { data: null, error: 'invalid JSON' }; }
+  } catch (_) {
+    return { data: null, error: 'network unavailable' };
+  }
+}
+
+function renderSafeDays(value) {
+  if (!Array.isArray(value)) return false;
+  return value.every((day) => {
+    if (!day || typeof day !== 'object' || Array.isArray(day)) return false;
+    if (day.schedule === undefined) return true;
+    if (!Array.isArray(day.schedule)) return false;
+    return day.schedule.every((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+      const contingency = row.contingency;
+      if (contingency == null) return true;
+      if (typeof contingency !== 'object' || Array.isArray(contingency)) return false;
+      const alternatives = contingency.alternatives;
+      return alternatives === undefined || (Array.isArray(alternatives)
+        && alternatives.every((alt) => !!alt && typeof alt === 'object' && !Array.isArray(alt)));
+    });
+  });
+}
+
 // Load a venue corpus file, distinguishing ABSENT (404 / offline → omit, fine)
 // from PRESENT-BUT-UNPARSEABLE (200 + bad JSON → warn, don't silently vanish the
 // whole section). With 4 more hand-editable files a trailing comma must not hide
@@ -82,7 +130,7 @@ async function loadCorpus(path) {
   if (!r.ok) return { items: [], error: false };       // 404 → absent (fine)
   try {
     const data = await r.json();
-    return { items: Array.isArray(data) ? data : [], error: false };
+    return { items: Array.isArray(data) ? data : [], error: !Array.isArray(data) };
   } catch (_) {
     return { items: [], error: true };                 // present but invalid → warn
   }
@@ -145,19 +193,26 @@ function renderDayCard(day, cityHint = '') {
   if (!day) { main.innerHTML = ''; return; }
   const rows = (day.schedule || []).map((s) => {
     const hasAnchor = !!(s.anchor && String(s.anchor).trim());
-    const jp = s.jp_reading ? `<span class="jp-reading">${esc(s.jp_reading)}</span>` : '';
+    // `local_name` is destination-neutral (Seoul/London/HCMC); `jp_reading`
+    // remains a backwards-compatible Japan-specific fallback.
+    const local = firstNonBlank(s.local_name, s.name_jp_or_local, s.jp_reading);
+    const jp = local ? `<span class="jp-reading">${esc(local)}</span>` : '';
     // A backup must show WHERE to go, not just why (dogfood #1 — "備案·下雨" alone
     // is useless on the ground). Render the alternative's name + a 📍 link to it;
     // fall back to reason-only for legacy data that has no name.
     const chips = (s.contingency?.alternatives || [])
-      .filter((a) => a && (a.name || a.reason))
+      .filter((a) => a && firstNonBlank(a.name, a.name_zh, a.reason, a.why_zh))
       .map((a) => {
-        const nm = String(a.name ?? '').trim();
-        const rs = String(a.reason ?? '').trim();
+        const nm = firstNonBlank(a.name, a.name_zh);
+        const rs = firstNonBlank(a.reason, a.why_zh);
         if (nm) {
           // Whole chip is the tap target (≥44px via CSS) → opens maps for the backup.
-          const url = mapsSearchUrl(cityHint ? `${nm} ${cityHint}` : nm);
-          const text = `備案 ${esc(nm)}${rs ? `（${esc(rs)}）` : ''} 📍`;
+          const localName = firstNonBlank(a.local_name, a.name_jp_or_local, a.name_jp);
+          const query = firstNonBlank(a.maps_query, a.address, localName)
+            || (cityHint ? `${nm} ${cityHint}` : nm);
+          const url = mapsSearchUrl(query);
+          const displayName = withLocalName(nm, localName);
+          const text = `備案 ${esc(displayName)}${rs ? `（${esc(rs)}）` : ''} 📍`;
           return `<a class="contingency-chip contingency-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
         }
         return `<span class="contingency-chip">備案·${esc(rs)}</span>`;
@@ -247,13 +302,15 @@ function collectVenues(corpora, candidates) {
 // subset and omits what's absent (a 周邊 row has no hours; an attraction uses
 // `hook` not `why_picked`) — graceful per-corpus degradation.
 function venueRowHtml(e, corpusKey) {
-  const name = e.name_zh || e.name || e.name_jp_or_local || '(未命名)';
+  const primaryName = firstNonBlank(e.name_zh, e.name, e.name_jp_or_local) || '(未命名)';
+  const localName = firstNonBlank(e.name_jp_or_local, e.local_name);
+  const name = withLocalName(primaryName, localName);
   const dayChip = (Array.isArray(e.day_keys) && e.day_keys.length)
     ? `<span class="food-day-chip">${esc(dayLabel(e.day_keys[0]))}</span>` : '';
   const pending = e._pending
     ? `<span class="food-pending">待分類${e.candidate_for ? `·${esc(String(e.candidate_for))}` : ''}</span>`
     : '';
-  const whyText = e.why_picked || e.hook || '';
+  const whyText = firstNonBlank(e.why_picked, e.hook);
   const why = whyText ? `<span class="food-why">${esc(whyText)}</span>` : '';
   const url = e.source_url ? safeUrl(e.source_url) : '';
   const link = (url && url !== '#')
@@ -270,7 +327,7 @@ function venueRowHtml(e, corpusKey) {
     prc ? esc(prc) : '',
   ].filter(Boolean).join(' · ');
   const metaHtml = meta ? `<span class="food-meta">${meta}</span>` : '';
-  const maps = mapsLinkHtml(mq || addr);
+  const maps = mapsLinkHtml(firstNonBlank(mq, addr, localName));
   // Stamp id + corpus key as data-attrs so the ②-A edit-mode controller can
   // address a row without fragile name-matching. Reading-mode-invisible
   // (data-* attrs don't affect layout/paint), so the regression specs stay green.
@@ -370,7 +427,9 @@ function mapsLinkHtml(query, label = '📍 地圖') {
 // each with a 📍 maps link. Within the bundle's offline-first / no-third-party-tile
 // / no-key constraints this is the honest "map" — "everywhere you're going, tap to
 // go". `items` is the flat venue+candidate list (each carries _corpus / _pending).
-// Anchors have no address, so their query is the anchor name + the trip city.
+// Anchor query priority: authored maps_query → address → local name → anchor +
+// trip city. Older trips usually reach the final fallback; richer generated
+// trips can now preserve exact on-the-ground fields.
 function renderMap(days, items, trip) {
   const main = document.getElementById('main');
   const cityHint = String(trip?.destination ?? '').trim();
@@ -381,23 +440,34 @@ function renderMap(days, items, trip) {
   // maps_query must fall back to address, not blank the query (codex P2). Only
   // MAPPABLE rows enter the navigate-list (a row with no 📍 is dead weight here —
   // it still shows in 口袋名單). Anchors are always mappable via their name.
-  const itemQuery = (f) => String(f.maps_query ?? '').trim() || String(f.address ?? '').trim();
-  const itemEntry = (f) => ({
-    name: f.name_zh || f.name || '(未命名)',
+  const itemQuery = (f) => firstNonBlank(f.maps_query, f.address, f.name_jp_or_local, f.local_name);
+  const itemEntry = (f) => {
+    const primaryName = firstNonBlank(f.name_zh, f.name, f.name_jp_or_local) || '(未命名)';
+    const localName = firstNonBlank(f.name_jp_or_local, f.local_name);
+    return {
+    name: withLocalName(primaryName, localName),
     query: itemQuery(f),
     // Only confirmed food.json rows get 🍜; every other located thing (anchors,
     // pending candidates, AND confirmed non-food corpora) is a 📍 (codex v0.3.2
     // P3 — a desserts/nearby row must not masquerade as food).
     kind: f._pending ? 'pending' : (f._corpus === 'food' ? 'food' : 'venue'),
     cf: f.candidate_for,
-  });
+  }; };
   const mappable = items.filter(itemQuery);
 
   const sections = [];
   for (const d of days) {
     const anchors = (d.schedule || [])
       .filter((s) => s.anchor && String(s.anchor).trim())
-      .map((s) => ({ name: String(s.anchor).trim(), query: withCity(String(s.anchor).trim()), kind: 'anchor' }));
+      .map((s) => {
+        const name = String(s.anchor).trim();
+        const localName = firstNonBlank(s.local_name, s.name_jp_or_local, s.jp_reading);
+        return {
+          name: withLocalName(name, localName),
+          query: firstNonBlank(s.maps_query, s.address, localName) || withCity(name),
+          kind: 'anchor',
+        };
+      });
     const dayItems = mappable.filter((f) => itemDay(f) === d.id).map(itemEntry);
     const entries = [...anchors, ...dayItems];
     if (entries.length) sections.push({ title: d.title || d.id, entries });
@@ -461,14 +531,17 @@ export async function renderApp() {
   // it must NOT be awaited serially after the fetches (eng render.js:445 lesson:
   // an extra serial await re-adds the cold-connection wait we just removed). It
   // never throws (memory fallback) so it can't break the loader.
-  const [trip, days, refs, candidatesRaw, overlay, ...corpusResults] = await Promise.all([
+  const [trip, daysResult, refs, candidatesRaw, overlay, ...corpusResults] = await Promise.all([
     loadJson('./data/trip.json', null),
-    loadJson('./data/days.json', []),
+    loadRequiredJson('./data/days.json'),
     loadJson('./data/refs.json', { schedule_refs: {} }),
     loadJson('./data/feed_candidates.json', []),
     loadOverlay(),
     ...VENUE_CORPORA.map((c) => loadCorpus('./data/' + c.file)),
   ]);
+  const daysRaw = daysResult.data;
+  const daysShapeError = !!daysResult.error || !renderSafeDays(daysRaw);
+  const days = renderSafeDays(daysRaw) ? daysRaw : [];
   // Base (on-disk) arrays, pre-overlay — the source of truth for id-gen + export.
   const baseCorpora = {};
   VENUE_CORPORA.forEach((c, i) => {
@@ -520,7 +593,8 @@ export async function renderApp() {
     hasVenues = model.sections.length > 0 || model.candidates.length > 0 || model.errorLabels.length > 0;
     // map shows only MAPPABLE places (a 📍 link needs a location); named anchors
     // are always mappable.
-    const hasMappable = mapItems.some((f) => String(f.maps_query ?? '').trim() || String(f.address ?? '').trim());
+    const hasMappable = mapItems.some((f) =>
+      firstNonBlank(f.maps_query, f.address, f.name_jp_or_local, f.local_name));
     hasMap = hasNamedAnchor || hasMappable;
     setNavAvailability({
       schedule: true,          // always implemented (fix: was disabling 行程)
@@ -533,6 +607,16 @@ export async function renderApp() {
   let active = computeActiveIndex(trip, days);
 
   const renderScheduleInto = () => {
+    if (daysShapeError) {
+      dayStrip.innerHTML = '';
+      prepHost.innerHTML = '';
+      document.getElementById('main').innerHTML = `
+        <section class="day-card data-error" role="alert">
+          <h2 tabindex="-1" data-view-heading>行程資料載入失敗</h2>
+          <p class="data-error-message">⚠️ 無法讀取有效的 days.json。修正 data/days.json 後重新載入。</p>
+        </section>`;
+      return;
+    }
     if (!days.length) {
       dayStrip.innerHTML = '';
       renderFirstOpenEmpty();

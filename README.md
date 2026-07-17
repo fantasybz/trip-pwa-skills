@@ -11,10 +11,12 @@ and open offline at 8am in a foreign city with two tired kids.
 
 It is distilled from a real, hand-built PWA — a 2026 Tokyo family-trip app,
 60+ commits of curation (its monorepo stays private; this bundle is published
-from it, see License). The skills encode *how that trip was planned* —
+from it, see License). The skills encode the portable parts of *how that trip was planned* —
 per-anchor contingency plans (每個備案都有資料), pre-trip prep refs (今晚先看),
-offline-first caching, full keyboard accessibility — so you can produce the same
-quality for Kyoto, Hong Kong, Seoul, or wherever you're taking the kids next.
+offline-first caching, full keyboard accessibility — and a content-depth gate
+that refuses skeleton-grade output. Cross-city dogfood is candid: the generated
+shell is near Tokyo quality, but editorial depth still requires real research;
+see [`docs/parity-dogfood-20260717.md`](docs/parity-dogfood-20260717.md).
 
 ## Who it's for
 
@@ -32,11 +34,11 @@ bash install.sh           # doctor-check deps + symlink skills into ~/.claude/sk
 Then, in Claude Code (any directory — Claude resolves the skill), say:
 
 ```
-Use trip-scaffold to create a Kyoto family trip PWA: 5 days, Traditional Chinese, kid age 6, mobile-first, offline-first.
-Use trip-scaffold draft-days and propose 2-3 real Kyoto anchors per day, each with a backup (rain/nap), so the app opens filled — not a blank skeleton.
-Use food-ingest on these 12 Reel URLs and assign each to a day or feed_candidates.
-Use refs-ingest on these 4 YouTube URLs as 行前預習.
-Use trip-scaffold launch-check, then publish to gh-pages.
+Use trip-scaffold to create a Kyoto family trip PWA: 5 days, Traditional Chinese, one adult and one 6-year-old child, mobile-first, offline-first.
+Use trip-scaffold draft-days and propose 4-6 real Kyoto execution blocks per day, including critical meals/transfers/rest, each with a researched backup (rain/nap), so the app opens filled — not a blank skeleton.
+Use food-ingest to add at least 15 confirmed venues across the 5-day trip (3 per trip day on average), assigning every venue to a valid day; the family gate does not require an even per-day venue distribution.
+Use refs-ingest on at least 10 source URLs as 行前預習, with at least 1 actionable ref per day.
+Use trip-scaffold launch-check with the family quality profile, then publish to gh-pages.
 ```
 
 **Prefer the command line?** Run the engine directly — **from this
@@ -45,29 +47,56 @@ Use trip-scaffold launch-check, then publish to gh-pages.
 
 ```bash
 # A fully-populated Tokyo demo in one command (see what the output looks like):
-bun skills/_lib/scaffold.ts --from-tokyo-seed --out ~/seoul-trip
+bun skills/_lib/scaffold.ts --from-tokyo-seed --out ~/tokyo-demo
 
 # Or your own trip from scratch:
 bun skills/_lib/scaffold.ts --city Seoul --city-jp 首爾 --days 5 \
-  --lang zh-tw --start 2026-08-01 --out ~/seoul-trip
+  --lang zh-tw --start 2026-08-01 --out ~/seoul-trip \
+  --travelers '[{"role":"parent","age_band":"adult"},{"role":"child","age_band":"school","age":6}]'
 bun skills/_lib/draft-days.ts --out ~/seoul-trip --anchors anchors.json  # real anchors (see references/draft-days.md); omit --anchors for blank stubs
-bun skills/_lib/launch-check.ts --out ~/seoul-trip
+# Add confirmed venues with ground detail. The family floor requires at least
+# 3 per trip day on average across the whole trip, not 3 on every individual day.
+# Each counted venue needs a valid batch-item "day" (stored as `day_keys`).
+# Confident items auto-route; add "to" only to override or resolve placement.
+bun skills/food-ingest/food-ingest.ts --out ~/seoul-trip --batch venue-items.json
+# Add actionable prep sources: at least 1 per day and 2 per day on average.
+bun skills/refs-ingest/refs-ingest.ts --out ~/seoul-trip --batch prep-refs.json
+# Install the trusted runner + browser once in this bundle. launch-check never
+# executes the generated trip's config, tests, or node_modules.
+bun install && bunx playwright install chromium
+bun skills/_lib/launch-check.ts --out ~/seoul-trip  # family quality runs by default
 ```
 
-Under an hour, end to end. The result passes a Lighthouse PWA audit and installs
-to the home screen.
+See [`food-ingest`](skills/food-ingest/SKILL.md) and
+[`refs-ingest`](skills/refs-ingest/SKILL.md) for the two batch-file schemas.
+
+Under an hour, end to end. The shipped launch check verifies the family content
+floor, duplicate refs, and Playwright behavior; the generated PWA installs to
+the home screen.
 
 ## What ships in the generated PWA
 
-- A day-by-day schedule with AM/PM anchors
+- A day-by-day schedule with execution blocks
 - An always-visible contingency plan on every anchor (rain, nap slipped, queue too long)
 - A collapsible "今晚先看" prep-refs card
 - A warm cream-and-terracotta visual identity tuned for Chinese typography
 - An in-app edit mode that drafts `why_picked` with BYOK AI (Anthropic direct, or OpenAI via your proxy)
 - Full keyboard accessibility and an offline service worker
-- A GitHub Pages deploy workflow
+- A visible `role="alert"` when required `days.json` data is unavailable or structurally invalid, never a false empty itinerary
+- Static files ready to publish to GitHub Pages
 
 ## Status
+
+**v0.11 (cross-city parity guardrails).** Five-role dogfood across Seoul,
+Bangkok, Singapore, London, and HCMC measured the generated apps at 7.3–7.6/10
+versus the hand-built Tokyo baseline: truthful and polished, but too shallow.
+This release makes candidate promotion lossless, adds explicit routing and
+corpus-to-corpus correction, supports destination-local names and richer
+contingencies, validates Traveler age bands, fails closed when Playwright is
+missing, and makes the `launch-check` family content profile the default
+(`--quality family` remains an explicit alias; `--no-quality` is partial). The profile is a portable
+minimum, not a Tokyo-equivalent badge; all original artifacts correctly fail it.
+Full evidence: [`docs/parity-dogfood-20260717.md`](docs/parity-dogfood-20260717.md).
 
 **v0.9.x (②-B BYOK AI enrich + verify-pass).** The edit mode can now **draft the
 hardest field** — `why_picked` — from a Taiwanese-family-with-kids lens. It's BYOK
@@ -103,8 +132,13 @@ See `CLAUDE.md` for conventions and `docs/` for the per-version plans.
 
 ## Runtime dependencies
 
-`bun`, `yt-dlp`, `ffmpeg`, `whisper-cli`, `resvg-js`, `@playwright/test`.
-`install.sh --check` tells you which are missing and how to get them.
+`bun` and `@resvg/resvg-js` run the bundle itself. `yt-dlp`, `ffmpeg`, and
+`whisper-cli` support URL/audio ingest; `bash install.sh --check` checks those
+bundle and authoring dependencies. `@playwright/test` is a bundle
+`devDependency`; install Chromium from the bundle before `launch-check`. The
+audit owns its loopback server and uses only bundle-owned runner/config/specs.
+Generated trips also declare Playwright for optional direct local development,
+but their tooling is never trusted or executed by `launch-check`.
 
 ## License
 

@@ -29,7 +29,7 @@ import {
   armPermissionFromGesture, scheduleFlush, flushNow,
 } from './fsa.js';
 import { route, MIN_CONFIDENCE } from './router.js';
-import { buildVenueEntry } from './venue-entry.js';
+import { buildVenueEntry, candidateToVenueFields } from './venue-entry.js';
 import { slug, uniqueId } from './id-gen.js';
 import { getRenderState } from './render.js';
 import { esc, isHttpUrl } from './sanitize.js';   // D3=C: shared escaper + URL guard
@@ -508,20 +508,14 @@ function findCandidate(id) {
 function doPromote(candId, corpus) {
   const rs = getRenderState();
   const cand = findCandidate(candId);
-  const id = mintId(cand?.name_zh || cand?.name || candId);
-  const entry = buildVenueEntry(corpus, {
-    id,
-    name_zh: cand?.name_zh || cand?.name || '(未命名)',
-    day_keys: cand?.day_hint ? [cand.day_hint] : [],
-    source_url: cand?.source_url || '',
-    source_platform: cand?.source_platform || 'manual',
-    extraction_method: cand?.extraction_method || 'manual',
-    why_picked: cand?.why_picked || '',
-    address: cand?.address || '', hours: cand?.hours || '', price: cand?.price || '',
-    maps_query: cand?.maps_query || '',
-    last_verified: isoToday(),
-    category: corpus === 'food' ? '' : corpus,
-  });
+  // Promotion is an identity-preserving move, not a new venue creation. Reuse
+  // the candidate id and let promoteCandidate reject a real collision in the
+  // destination corpus; mintId would always see the source candidate itself and
+  // unnecessarily rewrite common ids to -2.
+  const id = String(cand?.id ?? candId);
+  const entry = buildVenueEntry(corpus, candidateToVenueFields(cand, {
+    id, fallbackToday: isoToday(),
+  }));
   const baseTarget = rs.baseCorpora?.[corpus] || [];
   let next;
   try { next = promoteCandidate(rs.overlay, candId, corpus, entry, baseTarget); }

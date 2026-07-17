@@ -88,7 +88,7 @@ export function validateDraft(raw) {
 // Merge a validated draft onto the CURRENT full entry for the accept path.
 // CRITICAL (Codex#4): spread the current entry and overlay ONLY why_picked —
 // do NOT route through buildVenueEntry(), which rebuilds a narrow fixed schema
-// and DROPS fields (name_jp_or_local / anchor / backup_fit / coords / …) and
+// and DROPS fields outside its fixed corpus schema (anchor / backup_fit / coords / …) and
 // coerces kid_friendly with `!!`. CRITICAL (Codex#5): set kid_friendly ONLY when
 // the validated fields actually carry it (presence-aware) — never flip an
 // existing `true` to `false` because the model omitted the key. `acceptedText`

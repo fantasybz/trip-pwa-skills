@@ -6,13 +6,15 @@
 // into any of them.
 //
 // CROSS-RUNTIME INVARIANT (codex outside-voice #8): this Bun module is imported
-// by scaffold.ts and placement-promote.ts. render.js is a BROWSER template (it
-// cannot import this Bun module), so it hardcodes the SAME keys + labels + glyphs
-// in its own VENUE_CORPORA literal. `corpora.test.ts` parses render.js and asserts
-// the two lists agree, so they can't drift. When adding a 6th corpus:
+// by scaffold.ts, food-ingest.ts, placement-promote.ts, and launch-check.ts.
+// Browser/service-worker templates cannot import this Bun module, so render.js,
+// edit-mode.js, overlay.js, and sw.js.template carry small literal mirrors.
+// `corpora.test.ts` parses all four and asserts they agree, so they cannot drift. When adding a
+// 6th corpus:
 //   1. add a row here (this is the source of truth)
 //   2. add the matching row to render.js VENUE_CORPORA
-//   3. corpora.test.ts fails until render.js matches — that's the guard
+//   3. add its picker row to edit-mode.js, overlay key, and filename to sw.js.template
+//   4. corpora.test.ts fails until every browser mirror matches
 //
 // Glyph rule: NEVER 📍 — that emoji is already the maps-link + address marker in
 // the venue/map rows; reusing it for a corpus header overloads the glyph.

@@ -5,6 +5,7 @@
 // food.json with the seed but leaves the other 4 empty.
 import { test, expect } from 'bun:test';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -53,3 +54,42 @@ test('--from-tokyo-seed fills food.json but leaves the other 4 corpora empty []'
     await rm(base, { recursive: true, force: true });
   }
 }, 20000);
+
+test('--travelers validates the documented Traveler age_band schema', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'scaffold-travelers-'));
+  try {
+    const validOut = join(base, 'valid');
+    const valid = spawnSync('bun', [scaffold, '--city', 'Seoul', '--days', '2',
+      '--start', '2026-08-01', '--out', validOut,
+      '--travelers', JSON.stringify([
+        { role: '媽媽', age_band: 'adult' },
+        { role: '女兒', age_band: 'school', age: 6 },
+        { role: '長輩', age_band: 'senior', age: 120 },
+        { role: '嬰兒', age_band: 'infant', age_months: 35 },
+      ])], { encoding: 'utf8' });
+    expect(valid.status).toBe(0);
+    expect((await readData(validOut, 'trip.json')).travelers).toHaveLength(4);
+
+    const invalidCases = [
+      ['bad-json', '{', 'valid JSON'],
+      ['not-array', '{}', 'JSON array'],
+      ['null-item', '[null]', 'must be an object'],
+      ['missing-band', JSON.stringify([{ role: '媽媽' }]), 'age_band'],
+      ['unknown-band', JSON.stringify([{ age_band: 'grownup' }]), 'age_band'],
+      ['age-high', JSON.stringify([{ age_band: 'adult', age: 121 }]), 'age'],
+      ['age-float', JSON.stringify([{ age_band: 'adult', age: 6.5 }]), 'age'],
+      ['months-high', JSON.stringify([{ age_band: 'infant', age_months: 36 }]), 'age_months'],
+      ['role-type', JSON.stringify([{ age_band: 'adult', role: 7 }]), 'role'],
+    ];
+    for (const [label, raw, diagnostic] of invalidCases) {
+      const invalidOut = join(base, label);
+      const invalid = spawnSync('bun', [scaffold, '--city', 'Seoul', '--days', '2',
+        '--start', '2026-08-01', '--out', invalidOut, '--travelers', raw], { encoding: 'utf8' });
+      expect(invalid.status).toBe(2);
+      expect(invalid.stderr).toContain(diagnostic);
+      expect(existsSync(invalidOut)).toBe(false);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}, 30000);

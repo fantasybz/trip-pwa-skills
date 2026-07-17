@@ -1,9 +1,11 @@
 # Dog-food kit — 給第一個試用的朋友
 
-> **狀態（2026-07-13）**：這是 v0.1 時代的朋友試用腳本。流程與回報清單到 v0.10
-> 仍適用，但功能已長很多（五 corpus 口袋名單、placement-promote、in-PWA 編輯
-> 模式、BYOK AI enrich）——邀朋友時請以 `README.md` 的 Quickstart 為準，這份
-> 當「回報清單」用。AI persona 演練結果在 `dogfood-results-*.md`。
+> **狀態（2026-07-17）**：這份朋友試用腳本始於 v0.1，Quickstart 已更新到 v0.11
+> 的預設 family gate；下方回報題目仍保留原始產品驗證用途。功能已長出五 corpus
+> 口袋名單、placement-promote、in-PWA 編輯模式與 BYOK AI enrich，完整用法仍以
+> `README.md` 為準。AI persona 演練結果在 `dogfood-results-*.md`；2026-07-17
+> 五城市東京品質對標、R1–R7 分數與 confirmed gaps 在
+> `parity-dogfood-20260717.md`。
 
 > 目的：請一個「會用 Claude Code、帶小孩、最近會規劃一趟海外家族旅行」的朋友，
 > 用 `trip-pwa-skills` 生出**他自己那趟旅行**的 PWA，然後回報哪裡卡、哪裡爽。
@@ -26,11 +28,28 @@ cd trip-pwa-skills && bash install.sh
 
 在 Claude Code 裡，照順序講這幾句（不用記指令，講人話就好）：
 
-1. `用 trip-scaffold 幫我建一個首爾家族旅行 PWA：5 天、繁體中文、小孩 6 歲`
-2. `用 trip-scaffold draft-days 生每天的行程骨架`
-3. `用 food-ingest 把這幾個美食 Reel 加進去：<貼幾個 IG/FB/Reel 連結>`
-4. `用 refs-ingest 把這幾支 YouTube 當行前預習加到對應的天：<貼連結>`
-5. `用 trip-scaffold launch-check 檢查，然後幫我開到瀏覽器看`
+1. `用 trip-scaffold 幫我建一個首爾家族旅行 PWA：5 天、繁體中文；Traveler[] 請寫入 [{"role":"parent","age_band":"adult"},{"role":"child","age_band":"school","age":6}]`
+2. `用 trip-scaffold draft-days 規劃每天 4–6 個可執行 blocks（含重要用餐、移動、休息）；每個 anchor 都要有具名備案與原因，不能只留空骨架`
+3. `用 food-ingest 加入至少 15 個 confirmed venues（5 天平均每天至少 3 個），每筆指派到真實 day，補 family rationale（why_picked）與在地可執行資料（maps_query／地址／當地名，nearby 以外也要 hours）：<貼 IG/FB/Reel 連結>`
+4. `用 refs-ingest 加入至少 10 個可操作的行前預習來源：每一天至少 1 個，整趟平均每天至少 2 個；每筆都要有標題與 http(s) URL：<貼連結>`
+5. `先在 trip-pwa-skills bundle 安裝 trusted Playwright runner 與 Chromium，再用 trip-scaffold launch-check 跑預設 family gate 和完整 browser suite；全綠後幫我開到瀏覽器看`
+
+`launch-check` 使用 bundle-owned runner、config 與 specs，且不執行 generated
+trip 的 `node_modules`／測試設定。第一次檢查前在 bundle 執行：
+
+```bash
+(cd <trip-pwa-skills> && bun install && bunx playwright install chromium)
+bun skills/_lib/launch-check.ts --out ~/seoul-trip
+# generated trip 仍保留直接開發用的 Playwright 設定；這不是 launch-check 的信任來源：
+(cd ~/seoul-trip && bun install && bun run test:browser)
+```
+
+預設 `family` gate 的精確 floor 是：每天至少 3 個真實 anchor、全程平均至少 4 個
+anchor／日（因此朋友試用直接規劃 4–6 個）；每個 anchor 都有具名備案＋原因；每天
+至少 1 個、平均至少 2 個 actionable refs；confirmed venues 平均至少 3 個／日，且
+具唯一 `id`、有效 `day_keys`、名稱、`why_picked`（或 `hook`）、導航／地址／當地名
+至少一項，並在 `nearby` 以外提供 `hours`。Traveler 每一筆都必須使用有效
+`age_band`。這是防止空骨架被誤報為可發布的最低門檻，不取代真實性與文字品質的人工作業。
 
 預期：一小時內，一份可以裝到手機主畫面、離線也能開的旅行 App，行程 / 今晚先看 / 美食都在裡面。
 

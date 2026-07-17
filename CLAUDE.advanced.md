@@ -4,9 +4,10 @@ The full accessibility convention catalogue ported from the 2026-tokyo-family-
 travel PWA into the generated templates. `CLAUDE.md` states the baseline
 ("behavioral, not cosmetic"); this doc is the mechanism — what each convention
 is, where it lives in `templates/`, and how to extend a surface without
-breaking it. `launch-check` verifies the behavioral trio (focus-visible,
-tablist arrow nav, synthetic-click) with Playwright against the *generated*
-app — a CSS grep proves nothing about behavior.
+breaking it. `launch-check` runs every bundle-owned Playwright spec against the
+generated app's static files: `a11y.spec.ts` verifies the behavioral trio (focus-visible,
+tablist arrow nav, synthetic-click), while the other specs cover the render
+loop, edit mode, and AI enrich. A CSS grep proves nothing about behavior.
 
 ## Focus-ring system (`templates/css/base.css` + `tokens.css`)
 
@@ -80,8 +81,15 @@ line-height 1.55 (CJK needs more leading than Latin's 1.4).
 
 ## Verifying
 
-`bun skills/_lib/launch-check.ts --out <trip-dir>` runs the duplicate-ref audit
-plus the Playwright a11y suite (focus-visible ring visible, arrow nav moves
-tab focus, synthetic-click activates on Enter/Space) against the generated app.
-Run it after any change to `templates/js/app.js`, `render.js`, or the focus CSS.
-Unit halves live in `templates/js-tests/` (`bun run test` from the bundle root).
+`bun skills/_lib/launch-check.ts --out <trip-dir> --quality family` runs the
+duplicate-ref audit, portable content-depth floor, all bundle-owned
+`templates/tests/**/*.spec.ts` behavior checks, and trusted-only
+`tests/playwright-trusted/**/*.spec.ts` harness checks. The browser suite
+includes a11y (focus ring, arrow navigation, synthetic click), render-loop,
+edit-mode, AI-enrich, and network-isolation behavior. The audited trip's config, tests, and
+`node_modules` are never executed. Missing bundle Playwright fails closed;
+`--no-browser-tests` is an explicit partial check, not publish qualification
+(`--no-a11y` remains a deprecated full-suite skip alias). Run it after any
+change to generated browser behavior, including `templates/js/app.js`,
+`render.js`, edit mode, AI enrich, or the focus CSS. Unit halves live in
+`templates/js-tests/` (`bun run test` from the bundle root).

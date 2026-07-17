@@ -17,7 +17,9 @@ test('emptyOverlay has all 6 keys, each an empty delta; isOverlayEmpty true', ()
   expect(OVERLAY_KEYS.length).toBe(6);
   expect(OVERLAY_KEYS).toEqual(['food', 'desserts', 'attractions', 'fandom', 'nearby', 'feed_candidates']);
   for (const k of OVERLAY_KEYS) {
-    expect(o[k]).toEqual({ upserts: {}, removed: [] });
+    expect(Object.keys(o[k].upserts)).toEqual([]);
+    expect(Object.getPrototypeOf(o[k].upserts)).toBeNull();
+    expect(o[k].removed).toEqual([]);
   }
   expect(isOverlayEmpty(o)).toBe(true);
 });
@@ -44,7 +46,7 @@ test('applyOverlay: tombstoned id is dropped; id-less base entries pass through'
 test('addVenue: immutable, appends a new entry, rejects a duplicate add', () => {
   const o0 = emptyOverlay();
   const o1 = addVenue(o0, 'desserts', { id: 'cake', name_zh: '蛋糕' });
-  expect(o0.desserts.upserts).toEqual({});               // input untouched (immutable)
+  expect(Object.keys(o0.desserts.upserts)).toEqual([]);  // input untouched (immutable)
   expect(o1.desserts.upserts.cake).toEqual({ id: 'cake', name_zh: '蛋糕' });
   expect(isOverlayEmpty(o1)).toBe(false);
   expect(() => addVenue(o1, 'desserts', { id: 'cake', name_zh: 'dup' })).toThrow();
@@ -120,6 +122,32 @@ test('normalizeOverlay coerces a partial / legacy overlay to the full shape', ()
   expect(o.food.upserts.a).toEqual({ id: 'a' });
   expect(o.food.removed).toEqual([]);
   for (const k of OVERLAY_KEYS) expect(o[k]).toBeDefined();
+});
+
+test('user-controlled __proto__ ids remain ordinary own keys across add/edit/promote/normalize', () => {
+  const dangerous = { id: '__proto__', name_zh: '仍是一般店家' };
+
+  const added = addVenue(emptyOverlay(), 'food', dangerous);
+  expect(Object.getPrototypeOf(added.food.upserts)).toBeNull();
+  expect(Object.keys(added.food.upserts)).toContain('__proto__');
+  expect(added.food.upserts['__proto__']).toEqual(dangerous);
+
+  const edited = editVenue(emptyOverlay(), 'desserts', dangerous);
+  expect(Object.getPrototypeOf(edited.desserts.upserts)).toBeNull();
+  expect(Object.keys(edited.desserts.upserts)).toContain('__proto__');
+
+  const promoted = promoteCandidate(emptyOverlay(), 'source', 'nearby', dangerous, []);
+  expect(Object.getPrototypeOf(promoted.nearby.upserts)).toBeNull();
+  expect(Object.keys(promoted.nearby.upserts)).toContain('__proto__');
+  expect(applyOverlay([], promoted.nearby)).toEqual([dangerous]);
+
+  const rawUpserts = Object.create(null);
+  rawUpserts['__proto__'] = dangerous;
+  const normalized = normalizeOverlay({ fandom: { upserts: rawUpserts, removed: [] } });
+  expect(Object.getPrototypeOf(normalized.fandom.upserts)).toBeNull();
+  expect(Object.keys(normalized.fandom.upserts)).toContain('__proto__');
+  expect(normalized.fandom.upserts['__proto__']).toEqual(dangerous);
+  expect(({}).name_zh).toBeUndefined();
 });
 
 test('a remove of a base entry then re-add un-tombstones it (overlay stays consistent)', () => {

@@ -21,8 +21,10 @@ export const OVERLAY_KEYS = [
   'food', 'desserts', 'attractions', 'fandom', 'nearby', 'feed_candidates',
 ];
 
-// A per-key delta: { upserts: { id -> entry }, removed: [id, …] }.
-function emptyDelta() { return { upserts: {}, removed: [] }; }
+// A per-key delta: { upserts: { id -> entry }, removed: [id, …] }. Upserts is a
+// null-prototype dictionary because venue ids are user/data controlled; ids such
+// as "__proto__" must remain ordinary own keys, never mutate object prototypes.
+function emptyDelta() { return { upserts: Object.create(null), removed: [] }; }
 
 export function emptyOverlay() {
   const o = {};
@@ -71,7 +73,8 @@ function entryId(e) { return e && e.id != null ? String(e.id) : null; }
 export function applyOverlay(baseItems, delta) {
   const base = Array.isArray(baseItems) ? baseItems : [];
   const d = delta && typeof delta === 'object' ? delta : emptyDelta();
-  const upserts = d.upserts && typeof d.upserts === 'object' ? d.upserts : {};
+  const upserts = d.upserts && typeof d.upserts === 'object'
+    ? d.upserts : Object.create(null);
   const removed = new Set((Array.isArray(d.removed) ? d.removed : []).map(String));
 
   const out = [];
@@ -101,7 +104,7 @@ function cloneOverlay(o) {
   const next = {};
   for (const k of OVERLAY_KEYS) {
     next[k] = {
-      upserts: { ...base[k].upserts },
+      upserts: Object.assign(Object.create(null), base[k].upserts),
       removed: [...base[k].removed],
     };
   }

@@ -19,9 +19,10 @@
 // Refuses to overwrite a non-empty days.json unless --force, so a second run
 // doesn't clobber anchors the user has already written.
 
-import { readFile, writeFile, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { regenerateServiceWorker } from './regenerate-sw';
+import { acquireTripWriteLock, atomicWriteFile } from './safe-trip-write';
 
 interface Args { [k: string]: string }
 function parseArgs(argv: string[]): Args {
@@ -67,26 +68,92 @@ function anchorStub(time: string) {
   };
 }
 
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function firstText(...values: unknown[]): string {
+  for (const value of values) {
+    const normalized = text(value);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function httpUrl(value: unknown): string {
+  const raw = text(value);
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? raw : '';
+  } catch { return ''; }
+}
+
 // Normalize one caller-supplied schedule item into the anchor shape render.js
-// reads (time/anchor/context/contingency.alternatives[{name,reason}], optional
-// jp_reading). Defensive: coerce strings, drop empty alternatives.
+// reads (time/anchor/context/contingency.alternatives, optional local_name /
+// jp_reading). Defensive: coerce strings and drop empty alternatives, but retain
+// on-the-ground fields and prep_refs instead of collapsing a researched backup
+// into name+reason (2026 multi-city dogfood schema-loss finding).
 function normAnchor(s: any) {
-  const str = (v: unknown) => (typeof v === 'string' ? v : '');
   const alts = Array.isArray(s?.contingency?.alternatives) ? s.contingency.alternatives : [];
   const out: any = {
-    time: str(s?.time),
-    anchor: str(s?.anchor),
-    context: str(s?.context),
+    time: text(s?.time),
+    anchor: text(s?.anchor),
+    context: text(s?.context),
     contingency: {
       alternatives: alts
-        .filter((a: any) => a && (a.name || a.reason))
-        .map((a: any) => ({
-          ...(a.name ? { name: String(a.name) } : {}),
-          ...(a.reason ? { reason: String(a.reason) } : {}),
-        })),
+        .filter((a: any) => a && (firstText(a.name, a.name_zh) || firstText(a.reason, a.why_zh)))
+        .map(normAlternative),
     },
   };
-  if (s?.jp_reading) out.jp_reading = String(s.jp_reading);   // Japan trips only
+  const localName = firstText(s?.local_name, s?.name_jp_or_local);
+  if (localName) out.local_name = localName;
+  const jpReading = text(s?.jp_reading);
+  if (jpReading) out.jp_reading = jpReading;   // Japan trips only
+  return out;
+}
+
+function normPrepRef(ref: any) {
+  if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return null;
+  const title = text(ref.title);
+  const url = httpUrl(ref.url);
+  if (!title && !url) return null;
+  const out: any = {};
+  for (const key of ['type', 'source', 'lang', 'context', 'summary']) {
+    const value = text(ref[key]);
+    if (value) out[key] = value;
+  }
+  if (title) out.title = title;
+  if (url) out.url = url;
+  if (Number.isFinite(ref.duration_min)) out.duration_min = Number(ref.duration_min);
+  if (typeof ref.kid_friendly === 'boolean') out.kid_friendly = ref.kid_friendly;
+  return out;
+}
+
+function normAlternative(a: any) {
+  const out: any = {};
+  const name = firstText(a.name, a.name_zh);
+  const local = firstText(a.local_name, a.name_jp_or_local, a.name_jp);
+  const reason = firstText(a.reason, a.why_zh);
+  const address = firstText(a.address, a.address_zh, a.address_jp);
+  if (name) out.name = name;
+  if (local) out.local_name = local;
+  if (reason) out.reason = reason;
+  if (address) out.address = address;
+  for (const key of ['hours', 'maps_query', 'kind']) {
+    const value = text(a[key]);
+    if (value) out[key] = value;
+  }
+  const refUrl = httpUrl(a.ref_url);
+  if (refUrl) out.ref_url = refUrl;
+  if (Number.isFinite(a.duration_min)) out.duration_min = Number(a.duration_min);
+  if (typeof a.needs_booking === 'boolean') out.needs_booking = a.needs_booking;
+  if (a.coords && Number.isFinite(a.coords.lat) && Number.isFinite(a.coords.lng)) {
+    out.coords = { lat: Number(a.coords.lat), lng: Number(a.coords.lng) };
+  }
+  if (Array.isArray(a.prep_refs)) {
+    out.prep_refs = a.prep_refs.map(normPrepRef).filter(Boolean);
+  }
   return out;
 }
 
@@ -111,6 +178,7 @@ async function main() {
   const a = parseArgs(process.argv.slice(2));
   const out = a.out;
   if (!out) { console.error('Required: --out <trip dir>'); process.exit(2); }
+  const releaseWriteLock = await acquireTripWriteLock(out);
 
   const tripPath = join(out, 'data', 'trip.json');
   let trip: any;
@@ -167,17 +235,27 @@ async function main() {
     // "Filled" = the day actually got a real anchor name; a provided-but-anchorless
     // schedule shouldn't inflate the count or look authored (adversarial review P3).
     if (sched && sched.some((s) => s.anchor.trim())) filled++;
-    return {
+    const day: any = {
       id: `day_${i + 1}`,
       date: dateOffsetUTC(start, i),
       title: sched && typeof src.title === 'string' ? src.title : '',
       schedule: sched ?? [anchorStub('09:00'), anchorStub('14:00')],   // AM + PM stubs
-      prep_refs: [] as unknown[],
+      prep_refs: Array.isArray(src?.prep_refs)
+        ? src.prep_refs.map(normPrepRef).filter(Boolean)
+        : [] as unknown[],
     };
+    // Day-level operational contingencies (flight disruption, heavy rain SOP,
+    // etc.) are richer than schedule chips. draft-days does not render this
+    // schema yet, but it must never delete supplied research from the artifact.
+    if (src?.contingency && typeof src.contingency === 'object' && !Array.isArray(src.contingency)) {
+      day.contingency = src.contingency;
+    }
+    return day;
   });
 
-  await writeFile(daysPath, JSON.stringify(days, null, 2) + '\n');
+  await atomicWriteFile(daysPath, JSON.stringify(days, null, 2) + '\n');
   await regenerateServiceWorker(out);
+  await releaseWriteLock();
 
   if (provided.length) {
     console.log(`✓ days.json seeded with ${n} day(s) — ${filled} with real anchors, ${n - filled} still to fill`);

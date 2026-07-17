@@ -9,21 +9,33 @@ the user owns — not a chat answer, not a hosted SaaS. Distilled from the
 
 - **trip-scaffold** — `init` / `draft-days` / `launch-check`. Generates the PWA
   shell, seeds the day plan, runs pre-publish audits (all three implemented).
-- **food-ingest** — caption/URL → `food.json` or `feed_candidates.json` via the
-  shared router. Single + `--batch` modes.
+- **food-ingest** — caption/URL → one of the five venue corpora via the shared
+  router. A confident route writes its corpus directly; `--to <corpus>`
+  overrides placement; ties, low-confidence routes, and no-match routes fall
+  back to `feed_candidates.json`. Single + `--batch` modes.
 - **refs-ingest** — YouTube/blog/Reel URL → `refs.json` `schedule_refs` (行前預習).
   oEmbed title fetch, single + `--batch` modes.
 - **placement-promote** — move a parked `feed_candidates` entry into its corpus
   file (`--to food|desserts|attractions|fandom|nearby`) or `--discard`. Per-corpus
-  write shape; dedups against the target file. The 待分類 → 歸位 step.
+  write shape; dedups against the target file. It also relocates an already
+  confirmed venue with `--from <corpus> --to <corpus>`. The 待分類 → 歸位／誤路由
+  correction step.
 
 `skills/_lib/` holds shared modules: `corpora.ts` (the venue-corpus registry —
 single source of truth for food/desserts/attractions/fandom/nearby; imported by
-scaffold + placement-promote, mirrored in render.js, parity-tested), `router.ts`
+scaffold + food-ingest + placement-promote + launch-check, mirrored in render,
+edit mode, overlay, and the service worker, parity-tested), `router.ts`
 (caption → corpus, pure sync), `regenerate-sw.ts` (SW manifest, called after every
-write batch), `scaffold.ts` (init engine — builds into a staging dir, renames
-atomically), `draft-days.ts`, `launch-check.ts` (dup-ref + Playwright a11y),
-`icon-gen.ts` (192/512/maskable PNG via resvg-js), `url-key.ts` (normalized dedup).
+write batch), `scaffold.ts` (init engine — builds into a sibling staging dir;
+fresh targets commit with one atomic rename, while existing dotfile-only targets
+use no-replace per-entry moves and preserve recovery evidence if commit/rollback
+cannot finish), `draft-days.ts`, `launch-check.ts` (dup-ref + default family
+content floor + the trusted bundle Playwright behavior suite: a11y, render-loop,
+edit-mode, and AI enrich), `trusted-static-server.ts` (held ephemeral loopback
+listener + static allowlist/CSP/deny-proxy boundary), `safe-trip-write.ts`
+(symlink guard + trip-wide lock + parent-inode-anchored atomic replacement),
+`traveler-schema.ts` (portable age-band enum),
+`icon-gen.ts` (192/512/maskable PNG via `@resvg/resvg-js`), `url-key.ts` (normalized dedup).
 The underscore prefix excludes `_lib` from skill discovery; modules are imported by
 relative path from each skill.
 
@@ -97,7 +109,7 @@ When adding or editing a skill:
 
 ## Output PWA conventions (what the skills generate)
 
-- **Vanilla static, no build chain.** Runs from `python -m http.server`, deploys
+- **Vanilla static, no build chain.** Runs locally from `python3 -m http.server --bind 127.0.0.1`, deploys
   to gh-pages. No framework, no bundler.
 - **Visual identity is fixed (approved variant A).** Tokens in
   `templates/css/tokens.css`: cream `#FFFCF7`, terracotta `#E76F51`, Hiragino
@@ -107,9 +119,13 @@ When adding or editing a skill:
   behind a tap.
 - **Empty states do the emotional work.** A fresh PWA has empty corpus on first
   open. Every empty surface = warm prompt + next command, never "No data".
+- **Required schedule failure is not an empty state.** Missing, unavailable,
+  malformed, or nested-invalid `days.json` renders a 16px+ `role="alert"` and
+  suppresses the comforting empty-itinerary screen.
 - **a11y baseline is behavioral, not cosmetic.** focus-visible, tablist arrow
-  nav, synthetic-click activation — `launch-check` verifies these with
-  Playwright, not a CSS grep. Full catalogue + extension rules:
+  nav, synthetic-click activation — bundle-owned `templates/tests/a11y.spec.ts`
+  verifies these with Playwright, not a CSS grep. `launch-check` runs that spec
+  as part of the trusted browser suite. Full catalogue + extension rules:
   `CLAUDE.advanced.md`.
 - **Service worker stays in sync.** `regenerate-sw.ts` runs after every write
   batch; never hand-edit the sw.js manifest arrays.
@@ -154,12 +170,18 @@ pass), `ai-validate.js`/`sanitize.js` (shape + XSS gate), `ai-metrics.js`,
 
 `bun run test` (from the bundle root) = the Bun unit suites: `skills/` +
 `templates/js-tests/` + the pure-fn eval helpers in `tests/evals/`. The
-browser-level checks live in `launch-check` (Playwright a11y suite run against
-a *generated* trip app), not in the bundle's npm script. The `tests/evals/`
+browser-level checks live in `launch-check`, which runs the bundle-owned
+`templates/tests/**/*.spec.ts` behavior files (a11y, render-loop, edit-mode,
+and AI enrich) plus `tests/playwright-trusted/**/*.spec.ts` harness-isolation
+checks against a generated trip's static files. It starts and holds its own ephemeral
+loopback server; trip-local config/specs/dependencies are not executed. The
+CI Kyoto scaffold is intentionally sparse and therefore uses explicit
+`--no-quality`; content-profile logic is unit-tested, while release qualification
+still needs a full launch-check on content that meets the family floor. The `tests/evals/`
 hallucination eval itself is on-demand (LLM calls, needs keys) and lives
 OUTSIDE CI — the unit run only picks up `*.test.ts`, never the model-calling
 scripts.
 
 See `CLAUDE.advanced.md` for the full a11y convention catalogue ported from the
 Tokyo PWA (focus-ring token system, forced-colors, reduced-motion, CJK wrap
-scoping) and how launch-check verifies it.
+scoping) and how the a11y part of the bundle-owned Playwright suite verifies it.

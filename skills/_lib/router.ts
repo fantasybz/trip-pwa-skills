@@ -2,7 +2,8 @@
 // no LLM dependency (v0.1). Ported from 2026-tokyo-family-travel
 // scripts/lib/router.ts keyword sets + priority order.
 //
-// Used by food-ingest and refs-ingest via relative import:
+// Used by food-ingest via relative import; scaffold transpiles this source to
+// js/router.js for the generated trip's edit-mode browser runtime:
 //   import { route, MIN_CONFIDENCE, TIE_THRESHOLD } from '../_lib/router';
 //
 // Signature locked by eng-review D3; hardened per Codex xhigh (Day 2):

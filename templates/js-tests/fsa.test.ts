@@ -38,6 +38,20 @@ test('fsaSupported: non-localhost host (gh-pages) → false', () => {
   setWindow(win({ location: { hostname: 'fantasybz.github.io' } }));
   expect(fsaSupported()).toBe(false);
 });
+test('fsaSupported: reserved trusted harness + webdriver → true', () => {
+  setWindow(win({
+    location: { hostname: 'trip-pwa.test' },
+    navigator: { webdriver: true },
+  }));
+  expect(fsaSupported()).toBe(true);
+});
+test('fsaSupported: reserved host without webdriver → false', () => {
+  setWindow(win({
+    location: { hostname: 'trip-pwa.test' },
+    navigator: { webdriver: false },
+  }));
+  expect(fsaSupported()).toBe(false);
+});
 test('fsaSupported: window undefined → false', () => {
   setWindow(undefined);
   expect(fsaSupported()).toBe(false);

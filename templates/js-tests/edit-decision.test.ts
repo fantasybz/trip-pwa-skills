@@ -50,13 +50,14 @@ test('in-app id-gen unions base + overlay ids so a fresh mint collides with neit
 
 test('buildVenueEntry (browser mirror) yields the generic shape for a non-food corpus', () => {
   const e: any = buildVenueEntry('desserts', {
-    id: 'cake', name_zh: '蛋糕', day_keys: [],
+    id: 'cake', name_zh: '蛋糕', name_jp_or_local: '케이크', day_keys: [],
     source_url: '', source_platform: 'manual', extraction_method: 'manual',
     why_picked: '', address: '', hours: '', price: '', maps_query: '',
     last_verified: '2026-06-12', category: 'desserts',
   });
   expect(e.id).toBe('cake');
   expect(e.name_zh).toBe('蛋糕');
+  expect(e.name_jp_or_local).toBe('케이크');
   expect(e).not.toHaveProperty('category');     // generic subset — no food-only fields
   expect(e).not.toHaveProperty('kid_friendly');
 });

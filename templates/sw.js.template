@@ -13,9 +13,10 @@
 //   - Old caches deleted ONLY in activate, AFTER install succeeded
 //
 // PLACEHOLDERS — filled by skills/_lib/regenerate-sw.ts. Do not hand-edit the
-// manifest arrays below; run `Use trip-scaffold launch-check` (or any ingest)
-// to regenerate them. SW_VERSION is `YYYY-MM-DD-<sha1[:7]>` of the manifest.
-const SW_VERSION = '%SW_VERSION%';
+// manifest arrays below; from the trip-pwa-skills bundle root, run
+// `bun skills/_lib/regenerate-sw.ts --out <trip-dir>` (or use any ingest) to
+// regenerate them. SW_VERSION is `YYYY-MM-DD-<sha1[:7]>` of the manifest.
+const SW_VERSION = %SW_VERSION%;
 const STATIC_CACHE = `static-${SW_VERSION}`;
 const CONTENT_CACHE = `content-${SW_VERSION}`;
 

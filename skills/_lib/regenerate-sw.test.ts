@@ -1,9 +1,14 @@
 // regenerate-sw.test.ts — Run: bun test skills/_lib/regenerate-sw.test.ts
 import { test, expect } from 'bun:test';
-import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { regenerateServiceWorker } from './regenerate-sw';
+import { acquireTripWriteLock } from './safe-trip-write';
+
+const regenerateCli = fileURLToPath(new URL('./regenerate-sw.ts', import.meta.url));
 
 // Minimal scaffolded trip with the cacheable file families regenerate-sw knows.
 async function makeTrip(): Promise<string> {
@@ -48,6 +53,37 @@ test('generated sw.js auto-skipWaiting so a fresh ingest shows on next reload (d
   }
 });
 
+for (const separator of ['\u2028', '\u2029']) {
+  test(`encodes cache filenames containing U+${separator.codePointAt(0)!.toString(16).toUpperCase()} as parseable JS`, async () => {
+    const dir = await makeTrip();
+    try {
+      const hostileName = `quote-'\\-${separator}.js`;
+      await writeFile(join(dir, 'js', hostileName), '// filename is data, never source');
+      const manifest = await regenerateServiceWorker(dir);
+      const sw = await readFile(join(dir, 'sw.js'), 'utf8');
+      const encoded = JSON.stringify(`./js/${hostileName}`)
+        .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+      expect(manifest.shell).toContain(`./js/${hostileName}`);
+      expect(sw).toContain(encoded);
+      expect(() => new Function(sw)).not.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test('rejects an invalid trip start date before generating executable SW source', async () => {
+  const dir = await makeTrip();
+  try {
+    await writeFile(join(dir, 'data', 'trip.json'), JSON.stringify({
+      dates: { start: "2026-08-01';self.pwned=true;//" },
+    }));
+    await expect(regenerateServiceWorker(dir)).rejects.toThrow(/dates\.start must be a real ISO date/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('still hard-errors on a genuinely-unclassified shipped file (dot-skip did not over-broaden)', async () => {
   const dir = await makeTrip();
   try {
@@ -55,5 +91,53 @@ test('still hard-errors on a genuinely-unclassified shipped file (dot-skip did n
     await expect(regenerateServiceWorker(dir)).rejects.toThrow(/unclassified/);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('CLI regenerates after a direct data edit and prints the version', async () => {
+  const dir = await makeTrip();
+  try {
+    const result = spawnSync('bun', [regenerateCli, '--out', dir], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/sw\.js regenerated \(2026-08-01-/);
+    expect((await readFile(join(dir, 'sw.js'), 'utf8')).length).toBeGreaterThan(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('recovery CLI requires an explicit --out value', () => {
+  for (const args of [[], ['--out'], ['--out', '--other']]) {
+    const result = spawnSync('bun', [regenerateCli, ...args], { encoding: 'utf8' });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('Required: --out <trip dir>');
+  }
+});
+
+test('direct recovery CLI refuses to race an active trip writer', async () => {
+  const dir = await makeTrip();
+  try {
+    const release = await acquireTripWriteLock(dir);
+    const result = spawnSync('bun', [regenerateCli, '--out', dir], { encoding: 'utf8' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('another trip write is in progress');
+    expect(await readFile(join(dir, 'data', 'days.json'), 'utf8')).toBe('[]');
+    await release();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('rejects a symlinked sw.js instead of overwriting its external target', async () => {
+  const dir = await makeTrip();
+  const victim = `${dir}-victim.txt`;
+  try {
+    await writeFile(victim, 'do not overwrite');
+    await symlink(victim, join(dir, 'sw.js'));
+    await expect(regenerateServiceWorker(dir)).rejects.toThrow(/symlinked shipped path/);
+    expect(await readFile(victim, 'utf8')).toBe('do not overwrite');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(victim, { force: true });
   }
 });

@@ -1,6 +1,6 @@
 // placement-promote.test.ts — Run: bun test skills/placement-promote/placement-promote.test.ts
 import { test, expect } from 'bun:test';
-import { applyPromote } from './placement-promote';
+import { applyPromote, applyRelocate } from './placement-promote';
 
 const cand = (over: Record<string, unknown> = {}) => ({
   id: 'venue-ramen', name_zh: '聖水洞拉麵', candidate_for: null,
@@ -77,6 +77,23 @@ test('promote carries on-the-ground detail (address/hours/price/maps_query) from
   expect(f.maps_query).toBe('성수동 라멘');
 });
 
+test('promote is lossless for author fields unless an explicit override wins', () => {
+  const r = applyPromote([], [cand({
+    name_jp_or_local: '성수 라멘', anchor: '聖水', category: 'noodles',
+    kid_friendly: true, why_picked: '孩子可分食。', backup_fit: '下雨可用',
+  })], { id: 'venue-ramen', to: 'food' });
+  expect(r.target[0]).toMatchObject({
+    name_jp_or_local: '성수 라멘', anchor: '聖水', category: 'noodles',
+    kid_friendly: true, why_picked: '孩子可分食。', backup_fit: '下雨可用',
+  });
+
+  const overridden = applyPromote([], [cand({ why_picked: '原文', kid_friendly: true })], {
+    id: 'venue-ramen', to: 'food', why: '人工覆寫', kidFriendly: false,
+  });
+  expect(overridden.target[0].why_picked).toBe('人工覆寫');
+  expect(overridden.target[0].kid_friendly).toBe(false);
+});
+
 // --- non-food corpora: generic shape, NO food-only fields (codex #6) ---
 
 test('promote --to desserts writes a generic entry with NO food-only fields', () => {
@@ -102,7 +119,7 @@ test('promote --to desserts writes a generic entry with NO food-only fields', ()
   expect(d).not.toHaveProperty('kid_friendly');
   expect(d).not.toHaveProperty('anchor');
   expect(d).not.toHaveProperty('backup_fit');
-  expect(d).not.toHaveProperty('name_jp_or_local');
+  expect(d.name_jp_or_local).toBe('');
 });
 
 test('a food-only override (--category/--kid) does NOT leak onto a non-food corpus', () => {
@@ -117,7 +134,17 @@ test('a food-only override (--category/--kid) does NOT leak onto a non-food corp
 
 test('refuses a duplicate promote (same id already in the target corpus)', () => {
   expect(() => applyPromote([{ id: 'venue-ramen' }], [cand()], { id: 'venue-ramen', to: 'desserts' }))
-    .toThrow(/already in desserts\.json/);
+    .toThrow(/conflicts with a different entry already in desserts\.json/);
+});
+
+test('promote resumes an interrupted destination-first write when the target row is identical', () => {
+  const candidates = [cand({ id: 'x1' })];
+  const first = applyPromote([], candidates, { id: 'x1', to: 'desserts', today: '2026-07-16' });
+  const resumed = applyPromote(first.target, candidates, { id: 'x1', to: 'desserts', today: '2026-07-17' });
+  expect(resumed.resumed).toBe(true);
+  expect(resumed.target).toEqual(first.target);
+  expect(resumed.candidates).toEqual([]);
+  expect(resumed.moved.last_verified).toBe('2026-07-16');
 });
 
 test('source_url is NOT a dedup key — a distinct id sharing a URL promotes (multi-venue Reel)', () => {
@@ -161,3 +188,70 @@ test('does not mutate the input arrays', () => {
   expect(cands).toHaveLength(1);
 });
 
+test('relocate corrects a confirmed corpus without losing common fields', () => {
+  const original = {
+    id: 'regency-cafe', name_zh: 'Regency Café', name_jp_or_local: 'Regency Café',
+    day_keys: ['day_2'], source_url: 'https://example.com/regency',
+    source_platform: 'web', extraction_method: 'caption', why_picked: '可快速吃早餐。',
+    maps_query: 'Regency Cafe London', address: '17-19 Regency St', hours: '07:00-14:30',
+    price: '£', last_verified: '2026-07-16',
+  };
+  const r = applyRelocate([original], [], { id: 'regency-cafe', to: 'food' });
+  expect(r.source).toEqual([]);
+  expect(r.target[0]).toMatchObject({
+    id: 'regency-cafe', name_jp_or_local: 'Regency Café', day_keys: ['day_2'],
+    why_picked: '可快速吃早餐。', maps_query: 'Regency Cafe London',
+    address: '17-19 Regency St', hours: '07:00-14:30', category: 'restaurant',
+    last_verified: '2026-07-16',
+  });
+});
+
+test('relocate preserves renderer-supported legacy name/hook fallbacks', () => {
+  const legacy = {
+    id: 'legacy', name_zh: '   ', name: 'Legacy Venue', why_picked: ' ', hook: 'Legacy rationale',
+    last_verified: '2026-07-16',
+  };
+  const r = applyRelocate([legacy], [], { id: 'legacy', to: 'nearby' });
+  expect(r.target[0]).toMatchObject({
+    id: 'legacy', name_zh: 'Legacy Venue', why_picked: 'Legacy rationale', last_verified: '2026-07-16',
+  });
+});
+
+test('relocate refuses a conflicting destination duplicate and leaves inputs untouched', () => {
+  const source = [{ id: 'x', name_zh: '甲' }];
+  const target = [{ id: 'x', name_zh: '甲' }];
+  expect(() => applyRelocate(source, target, { id: 'x', to: 'food' })).toThrow(/conflicts with a different entry/);
+  expect(source).toHaveLength(1);
+  expect(target).toHaveLength(1);
+});
+
+test('relocate resumes an interrupted destination-first move when the target row is identical', () => {
+  const source = [{ id: 'x', name_zh: '甲', last_verified: '2026-07-16' }];
+  const expected = applyRelocate(source, [], { id: 'x', to: 'food' }).target;
+  const resumed = applyRelocate(source, expected, { id: 'x', to: 'food' });
+  expect(resumed.resumed).toBe(true);
+  expect(resumed.source).toEqual([]);
+  expect(resumed.target).toEqual(expected);
+});
+
+test('relocate resume reuses the committed verification date across a UTC day boundary', () => {
+  const source = [{ id: 'x', name_zh: '甲' }];
+  const expected = applyRelocate(source, [], { id: 'x', to: 'food', today: '2026-07-16' }).target;
+  const resumed = applyRelocate(source, expected, { id: 'x', to: 'food', today: '2026-07-17' });
+  expect(resumed.resumed).toBe(true);
+  expect(resumed.moved.last_verified).toBe('2026-07-16');
+});
+
+test('relocate pure boundary rejects a missing or unknown destination corpus', () => {
+  const source = [{ id: 'x', name_zh: '甲' }];
+  expect(() => applyRelocate(source, [], { id: 'x' } as any)).toThrow(/unknown destination corpus/);
+  expect(() => applyRelocate(source, [], { id: 'x', to: 'bogus' })).toThrow(/unknown destination corpus/);
+  expect(source).toHaveLength(1);
+});
+
+test('relocate pure boundary rejects an unknown source id and lists available ids', () => {
+  const source = [{ id: 'known', name_zh: '甲' }];
+  expect(() => applyRelocate(source, [], { id: 'missing', to: 'food' }))
+    .toThrow(/no source entry with id "missing"\. Available: known/);
+  expect(source).toHaveLength(1);
+});

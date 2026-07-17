@@ -15,6 +15,18 @@ const renderJs = readFileSync(
   join(import.meta.dir, '../../templates/js/render.js'),
   'utf8',
 );
+const editModeJs = readFileSync(
+  join(import.meta.dir, '../../templates/js/edit-mode.js'),
+  'utf8',
+);
+const serviceWorkerTemplate = readFileSync(
+  join(import.meta.dir, '../../templates/sw.js.template'),
+  'utf8',
+);
+const overlayJs = readFileSync(
+  join(import.meta.dir, '../../templates/js/overlay.js'),
+  'utf8',
+);
 
 function parseRenderRegistry(src: string) {
   const rowRe =
@@ -33,6 +45,25 @@ test('render.js VENUE_CORPORA mirrors corpora.ts exactly (no cross-runtime drift
   expect(rendered).toEqual(
     VENUE_CORPORA.map((c) => ({ key: c.key, file: c.file, label_zh: c.label_zh, glyph: c.glyph })),
   );
+});
+
+test('edit-mode.js PICKER_CORPORA mirrors corpus keys/labels/glyphs exactly', () => {
+  const block = editModeJs.match(/const PICKER_CORPORA = \[([\s\S]*?)\n\];/)?.[1] ?? '';
+  const rowRe = /\{\s*key:\s*'([^']+)',\s*label_zh:\s*'([^']+)',\s*glyph:\s*'([^']+)'\s*\}/g;
+  const rows = [...block.matchAll(rowRe)].map((m) => ({ key: m[1], label_zh: m[2], glyph: m[3] }));
+  expect(rows).toEqual(VENUE_CORPORA.map(({ key, label_zh, glyph }) => ({ key, label_zh, glyph })));
+});
+
+test('sw.js.template REFETCHABLE includes every venue corpus file exactly once', () => {
+  const block = serviceWorkerTemplate.match(/const REFETCHABLE = new Set\(\[([\s\S]*?)\]\);/)?.[1] ?? '';
+  const files = [...block.matchAll(/'([^']+\.json)'/g)].map((m) => m[1]);
+  expect(files).toEqual([...VENUE_CORPUS_FILES, 'feed_candidates.json']);
+});
+
+test('overlay.js OVERLAY_KEYS includes every venue corpus plus the candidate pool exactly once', () => {
+  const block = overlayJs.match(/export const OVERLAY_KEYS = \[([\s\S]*?)\n\];/)?.[1] ?? '';
+  const keys = [...block.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  expect(keys).toEqual([...VENUE_CORPUS_KEYS, 'feed_candidates']);
 });
 
 test('derived key/file lists stay in sync with the registry', () => {

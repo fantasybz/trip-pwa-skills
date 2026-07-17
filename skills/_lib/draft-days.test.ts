@@ -53,6 +53,54 @@ test('--anchors seeds real anchors + contingency name; uncovered days stay blank
   } finally { await rm(join(out, '..'), { recursive: true, force: true }); }
 }, 20000);
 
+test('--anchors preserves destination-neutral local names and researched backup detail', async () => {
+  const out = await makeTrip();
+  try {
+    const af = join(out, '..', 'rich-anchors.json');
+    await writeFile(af, JSON.stringify([{
+      title: 'Day 1 · Thảo Điền',
+      prep_refs: [
+        { type: 'article', title: 'Family guide', url: 'https://example.com/guide' },
+        { title: {}, url: 'javascript:alert(1)' },
+      ],
+      contingency: { kind: 'heavy_rain', summary_zh: '改走全室內' },
+      schedule: [{
+        time: '09:00', anchor: '戰爭遺跡博物館', local_name: 'Bảo tàng Chứng tích Chiến tranh',
+        contingency: { alternatives: [{
+          name_zh: '西貢中央郵局', name_jp_or_local: 'Bưu điện Trung tâm Sài Gòn',
+          why_zh: '大雨時縮短步行', address_zh: '02 Công xã Paris',
+          maps_query: 'Bưu điện Trung tâm Sài Gòn', coords: { lat: 10.7798, lng: 106.699 },
+          hours: '07:00-19:00', ref_url: 'https://example.com/post-office', kind: 'indoor',
+          duration_min: 45, needs_booking: false,
+          prep_refs: [{ title: 'Official', url: 'https://example.com/official', kid_friendly: true }],
+        }, {
+          name: '', name_zh: '書街', name_jp: 'Đường Sách', reason: '', why_zh: '就近休息',
+          address_jp: 'Nguyễn Văn Bình', coords: { lat: 'bad', lng: 106.7 },
+          ref_url: 'javascript:alert(1)', prep_refs: [{ title: {}, url: {} }],
+        }] },
+      }],
+    }]));
+    expect(spawnSync('bun', [draftDays, '--out', out, '--anchors', af], { encoding: 'utf8' }).status).toBe(0);
+    const [day] = await readDays(out);
+    expect(day.schedule[0].local_name).toBe('Bảo tàng Chứng tích Chiến tranh');
+    expect(day.schedule[0]).not.toHaveProperty('jp_reading');
+    expect(day.schedule[0].contingency.alternatives[0]).toEqual({
+      name: '西貢中央郵局', local_name: 'Bưu điện Trung tâm Sài Gòn',
+      reason: '大雨時縮短步行', address: '02 Công xã Paris',
+      maps_query: 'Bưu điện Trung tâm Sài Gòn', coords: { lat: 10.7798, lng: 106.699 },
+      hours: '07:00-19:00', ref_url: 'https://example.com/post-office', kind: 'indoor',
+      duration_min: 45, needs_booking: false,
+      prep_refs: [{ title: 'Official', url: 'https://example.com/official', kid_friendly: true }],
+    });
+    expect(day.schedule[0].contingency.alternatives[1]).toEqual({
+      name: '書街', local_name: 'Đường Sách', reason: '就近休息',
+      address: 'Nguyễn Văn Bình', prep_refs: [],
+    });
+    expect(day.prep_refs).toEqual([{ type: 'article', title: 'Family guide', url: 'https://example.com/guide' }]);
+    expect(day.contingency).toEqual({ kind: 'heavy_rain', summary_zh: '改走全室內' });
+  } finally { await rm(join(out, '..'), { recursive: true, force: true }); }
+}, 20000);
+
 test('a provided schedule with no real anchor is not counted as "filled" (adversarial P3)', async () => {
   const out = await makeTrip();
   try {
